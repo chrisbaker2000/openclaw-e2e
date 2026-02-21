@@ -39,6 +39,12 @@ OPENCLAW_CUSTOM_PROVIDER_URL="${OPENCLAW_CUSTOM_PROVIDER_URL:-}"
 OPENCLAW_CUSTOM_PROVIDER_KEY="${OPENCLAW_CUSTOM_PROVIDER_KEY:-}"
 OPENCLAW_CUSTOM_PROVIDER_MODELS="${OPENCLAW_CUSTOM_PROVIDER_MODELS:-}"
 
+# ─── Local deployment extras (used by tests/local/*.sh) ──────────
+OPENCLAW_DEPLOY_DIR="${OPENCLAW_DEPLOY_DIR:-}"
+OPENCLAW_AZURE_ANTHROPIC_KEY="${OPENCLAW_AZURE_ANTHROPIC_KEY:-}"
+OPENCLAW_AZURE_ANTHROPIC_URL="${OPENCLAW_AZURE_ANTHROPIC_URL:-}"
+OPENCLAW_MAC_CONFIG_DIR="${OPENCLAW_MAC_CONFIG_DIR:-$HOME/.openclaw}"
+
 # ─── Latency thresholds (ms) ──────────────────────────────────────
 OPENCLAW_MAX_MEMORY_SEARCH_MS="${OPENCLAW_MAX_MEMORY_SEARCH_MS:-3000}"
 OPENCLAW_MAX_GATEWAY_HTTP_MS="${OPENCLAW_MAX_GATEWAY_HTTP_MS:-2000}"
@@ -68,6 +74,7 @@ parse_args() {
                 echo ""
                 echo "Sections: core, config, cron, plugins, memory, channels,"
                 echo "          runtime, environment, latency, custom-provider"
+                echo "          + any tests/local/*.sh modules"
                 echo ""
                 echo "Configuration: create a .env file (see .env.example)"
                 exit 0

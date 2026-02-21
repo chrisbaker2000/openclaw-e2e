@@ -14,6 +14,7 @@
 #
 # Sections: core, config, cron, plugins, memory, channels,
 #           runtime, environment, latency, custom-provider
+#           + any tests/local/*.sh modules (deployment-specific)
 
 set -uo pipefail
 
@@ -36,6 +37,20 @@ source "$SCRIPT_DIR/tests/runtime.sh"
 source "$SCRIPT_DIR/tests/environment.sh"
 source "$SCRIPT_DIR/tests/latency.sh"
 source "$SCRIPT_DIR/tests/custom-provider.sh"
+
+# ─── Load local test modules (deployment-specific, gitignored) ────
+LOCAL_TEST_FUNCTIONS=()
+if [ -d "$SCRIPT_DIR/tests/local" ]; then
+    for local_test in "$SCRIPT_DIR/tests/local/"*.sh; do
+        [ -f "$local_test" ] || continue
+        source "$local_test"
+        # Extract the test function name from the file (convention: test_local_<name>)
+        local_fn="test_local_$(basename "$local_test" .sh | tr '-' '_')"
+        if type "$local_fn" &>/dev/null; then
+            LOCAL_TEST_FUNCTIONS+=("$local_fn")
+        fi
+    done
+fi
 
 # ─── Parse CLI args ───────────────────────────────────────────────
 parse_args "$@"
@@ -81,6 +96,11 @@ main() {
     test_environment
     test_latency
     test_custom_provider
+
+    # Run local deployment-specific tests (tests/local/*.sh)
+    for local_fn in "${LOCAL_TEST_FUNCTIONS[@]}"; do
+        "$local_fn"
+    done
 
     # Summary
     print_summary

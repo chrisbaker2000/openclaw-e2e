@@ -1,6 +1,9 @@
 # Configuration (contains deployment-specific secrets)
 .env
 
+# Local deployment-specific tests (not committed to public repo)
+tests/local/
+
 # Logs and temp files
 *.log
 /tmp/
