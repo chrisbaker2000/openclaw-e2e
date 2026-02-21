@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: OpenClaw Documentation
+    url: https://docs.openclaw.ai
+    about: Check the official OpenClaw docs for configuration reference
+  - name: Discussions
+    url: https://github.com/chrisbaker2000/openclaw-e2e/discussions
+    about: Ask questions or share your setup in Discussions

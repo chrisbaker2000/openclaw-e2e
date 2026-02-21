@@ -1,4 +1,16 @@
+# Configuration (contains deployment-specific secrets)
 .env
+
+# Logs and temp files
 *.log
 /tmp/
+
+# macOS
 .DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
