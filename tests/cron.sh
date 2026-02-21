@@ -4,7 +4,7 @@
 test_cron() {
     should_run "cron" || return 0
     has_container_access || return 0
-    section "Cron Delivery Health (10 tests)"
+    section "Cron Delivery Health (13 tests)"
 
     local cron_data
     cron_data=$(container_exec "cat /home/node/.openclaw/cron/jobs.json") || cron_data=""
@@ -217,5 +217,65 @@ print('|'.join(bad) if bad else 'ok')
         pass "Model overrides: all use provider/model format"
     else
         fail "Invalid model overrides: $(echo "$bad_models" | tr '|' ', ')"
+    fi
+
+    # 11. Session targets valid (per docs: main, isolated)
+    local bad_targets
+    bad_targets=$(echo "$cron_data" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['cron']['session_targets'])
+bad = []
+for j in data.get('jobs', []):
+    st = j.get('sessionTarget', '')
+    if st and st not in valid:
+        bad.append(f\"{j.get('name','?')[:40]}: {st}\")
+print('|'.join(bad) if bad else 'ok')
+" 2>/dev/null)
+    if [ "$bad_targets" = "ok" ]; then
+        pass "Session targets: all valid (per docs)"
+    else
+        fail "Invalid session targets: $(echo "$bad_targets" | tr '|' ', ')"
+    fi
+
+    # 12. Thinking levels in payload valid (per docs: off, minimal, low, medium, high, xhigh)
+    local bad_thinking
+    bad_thinking=$(echo "$cron_data" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['cron']['thinking_levels'])
+bad = []
+for j in data.get('jobs', []):
+    level = j.get('payload', {}).get('thinking', '')
+    if level and level not in valid:
+        bad.append(f\"{j.get('name','?')[:40]}: thinking={level}\")
+print('|'.join(bad) if bad else 'ok')
+" 2>/dev/null)
+    if [ "$bad_thinking" = "ok" ]; then
+        pass "Payload thinking levels: all valid (per docs)"
+    else
+        fail "Invalid thinking levels: $(echo "$bad_thinking" | tr '|' ', ')"
+    fi
+
+    # 13. Wake modes valid (per docs: now, next-heartbeat)
+    local bad_wake
+    bad_wake=$(echo "$cron_data" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['cron']['wake_modes'])
+bad = []
+for j in data.get('jobs', []):
+    wm = j.get('wakeMode', '')
+    if wm and wm not in valid:
+        bad.append(f\"{j.get('name','?')[:40]}: wakeMode={wm}\")
+print('|'.join(bad) if bad else 'ok')
+" 2>/dev/null)
+    if [ "$bad_wake" = "ok" ]; then
+        pass "Wake modes: all valid (per docs)"
+    else
+        fail "Invalid wake modes: $(echo "$bad_wake" | tr '|' ', ')"
     fi
 }

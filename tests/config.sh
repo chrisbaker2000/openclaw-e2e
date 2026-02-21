@@ -5,7 +5,7 @@
 test_config() {
     should_run "config" || return 0
     has_container_access || return 0
-    section "Config Schema Compliance (10 tests)"
+    section "Config Schema Compliance (20 tests)"
 
     if [ -z "$GATEWAY_CONFIG" ]; then
         fail "Gateway config: not readable"
@@ -245,5 +245,233 @@ print('|'.join(bad) if bad else 'ok')
         fi
     else
         skip "Fallback providers: shared config not readable"
+    fi
+
+    # 11. Session reset mode valid (per docs: daily, idle)
+    if [ -n "$shared_config" ]; then
+        local reset_check
+        reset_check=$(echo "$shared_config" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['session']['reset_modes'])
+mode = d.get('session', {}).get('reset', {}).get('mode', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+        if [ "$reset_check" = "ok" ]; then
+            pass "Session reset mode: valid"
+        else
+            fail "Session reset mode $reset_check"
+        fi
+    else
+        skip "Session reset mode: shared config not readable"
+    fi
+
+    # 12. Messages humanDelay mode valid (per docs: off, natural, custom)
+    local delay_check
+    delay_check=$(echo "$GATEWAY_CONFIG" | python3 -c "
+import json, sys
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['messages']['human_delay_modes'])
+config = json.load(sys.stdin)
+mode = config.get('humanDelay', {}).get('mode', '') or config.get('messages', {}).get('humanDelay', {}).get('mode', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+    if [ "$delay_check" = "ok" ]; then
+        pass "Messages humanDelay mode: valid"
+    else
+        fail "Messages humanDelay mode $delay_check"
+    fi
+
+    # 13. Messages queue mode valid (per docs: steer, followup, collect, etc.)
+    if [ -n "$shared_config" ]; then
+        local queue_check
+        queue_check=$(echo "$shared_config" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['messages']['queue_modes'])
+mode = d.get('messages', {}).get('queue', {}).get('mode', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+        if [ "$queue_check" = "ok" ]; then
+            pass "Messages queue mode: valid"
+        else
+            fail "Messages queue mode $queue_check"
+        fi
+    else
+        skip "Messages queue mode: shared config not readable"
+    fi
+
+    # 14. Messages typingMode valid (per docs: never, instant, thinking, message)
+    if [ -n "$shared_config" ]; then
+        local typing_check
+        typing_check=$(echo "$shared_config" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['messages']['typing_modes'])
+mode = d.get('messages', {}).get('typingMode', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+        if [ "$typing_check" = "ok" ]; then
+            pass "Messages typingMode: valid"
+        else
+            fail "Messages typingMode $typing_check"
+        fi
+    else
+        skip "Messages typingMode: shared config not readable"
+    fi
+
+    # 15. Tailscale mode valid (per docs: off, serve, funnel)
+    local ts_check
+    ts_check=$(echo "$GATEWAY_CONFIG" | python3 -c "
+import json, sys
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['gateway']['tailscale_modes'])
+config = json.load(sys.stdin)
+mode = config.get('gateway', {}).get('tailscale', {}).get('mode', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+    if [ "$ts_check" = "ok" ]; then
+        pass "Gateway tailscale mode: valid"
+    else
+        fail "Gateway tailscale mode $ts_check"
+    fi
+
+    # 16. Funnel requires password auth (per docs: cross-validation)
+    local funnel_check
+    funnel_check=$(echo "$GATEWAY_CONFIG" | python3 -c "
+import json, sys
+schema = json.load(open('$DOCS_SCHEMA'))
+config = json.load(sys.stdin)
+ts_mode = config.get('gateway', {}).get('tailscale', {}).get('mode', '')
+auth_mode = config.get('gateway', {}).get('auth', {}).get('mode', '')
+if ts_mode == 'funnel' and auth_mode != schema['gateway']['funnel_requires_auth']:
+    print(f'funnel requires password auth, got: {auth_mode}')
+else:
+    print('ok')
+" 2>/dev/null)
+    if [ "$funnel_check" = "ok" ]; then
+        pass "Funnel auth cross-check: valid"
+    else
+        fail "Funnel auth: $funnel_check"
+    fi
+
+    # 17. Logging console style valid (per docs: pretty, compact, json)
+    local log_style_check
+    log_style_check=$(echo "$GATEWAY_CONFIG" | python3 -c "
+import json, sys
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['logging']['console_styles'])
+config = json.load(sys.stdin)
+style = config.get('logging', {}).get('consoleStyle', '')
+if not style:
+    print('ok')
+elif style in valid:
+    print('ok')
+else:
+    print(f'invalid: {style}')
+" 2>/dev/null)
+    if [ "$log_style_check" = "ok" ]; then
+        pass "Logging console style: valid"
+    else
+        fail "Logging console style $log_style_check"
+    fi
+
+    # 18. Logging redactSensitive valid (per docs: off, tools, all)
+    local redact_check
+    redact_check=$(echo "$GATEWAY_CONFIG" | python3 -c "
+import json, sys
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['logging']['redact_modes'])
+config = json.load(sys.stdin)
+mode = config.get('logging', {}).get('redactSensitive', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+    if [ "$redact_check" = "ok" ]; then
+        pass "Logging redactSensitive: valid"
+    else
+        fail "Logging redactSensitive $redact_check"
+    fi
+
+    # 19. Agent thinking level valid (per docs: off, minimal, low, medium, high, xhigh)
+    if [ -n "$shared_config" ]; then
+        local thinking_check
+        thinking_check=$(echo "$shared_config" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['agents']['thinking_levels'])
+level = d.get('agents', {}).get('defaults', {}).get('thinkingDefault', '')
+if not level:
+    print('ok')
+elif level in valid:
+    print('ok')
+else:
+    print(f'invalid: {level}')
+" 2>/dev/null)
+        if [ "$thinking_check" = "ok" ]; then
+            pass "Agent thinking level: valid"
+        else
+            fail "Agent thinking level $thinking_check"
+        fi
+    else
+        skip "Agent thinking level: shared config not readable"
+    fi
+
+    # 20. Tool sessions visibility valid (per docs: self, tree, agent, all)
+    if [ -n "$shared_config" ]; then
+        local vis_check
+        vis_check=$(echo "$shared_config" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['tools']['visibility_modes'])
+mode = d.get('tools', {}).get('sessions', {}).get('visibility', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+        if [ "$vis_check" = "ok" ]; then
+            pass "Tool sessions visibility: valid"
+        else
+            fail "Tool sessions visibility $vis_check"
+        fi
+    else
+        skip "Tool sessions visibility: shared config not readable"
     fi
 }

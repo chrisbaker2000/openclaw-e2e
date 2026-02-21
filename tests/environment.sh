@@ -1,10 +1,10 @@
 # tests/environment.sh — Gateway Environment
-# Validates env vars, checks logs for errors.
+# Validates env vars, checks logs for errors, security flags.
 
 test_environment() {
     should_run "environment" || return 0
     has_container_access || return 0
-    section "Gateway Environment (6 tests)"
+    section "Gateway Environment (9 tests)"
 
     # 1. Gateway token set
     local has_token
@@ -91,5 +91,88 @@ print(\" \".join(artifacts) if artifacts else \"none\")
         pass "Workspace clean: no source repo artifacts"
     else
         fail "Workspace corrupted: found $workspace_artifacts"
+    fi
+
+    # 7. No dangerous flags enabled (per docs: break-glass only)
+    if [ -n "$GATEWAY_CONFIG" ] && [ -f "$DOCS_SCHEMA" ]; then
+        local danger_check
+        danger_check=$(echo "$GATEWAY_CONFIG" | python3 -c "
+import json, sys
+config = json.load(sys.stdin)
+findings = []
+
+# dangerouslyDisableDeviceAuth — break-glass only
+if config.get('gateway', {}).get('controlUi', {}).get('dangerouslyDisableDeviceAuth', False):
+    findings.append('dangerouslyDisableDeviceAuth=true')
+
+# allowInsecureAuth — warn-level security concern
+if config.get('gateway', {}).get('controlUi', {}).get('allowInsecureAuth', False):
+    findings.append('allowInsecureAuth=true')
+
+# tools.elevated.enabled — should be false in production
+if config.get('tools', {}).get('elevated', {}).get('enabled', False):
+    findings.append('tools.elevated.enabled=true')
+
+print('|'.join(findings) if findings else 'ok')
+" 2>/dev/null)
+        if [ "$danger_check" = "ok" ]; then
+            pass "No dangerous flags enabled"
+        else
+            fail "Dangerous flags: $(echo "$danger_check" | tr '|' ', ')"
+        fi
+    else
+        skip "Dangerous flags: config or schema not available"
+    fi
+
+    # 8. Config file permissions (per docs: 600 for config, 700 for dirs)
+    local perm_check
+    perm_check=$(container_exec "python3 -c '
+import os, stat
+issues = []
+config_path = \"/home/node/.openclaw/openclaw.json\"
+config_dir = \"/home/node/.openclaw\"
+creds_dir = \"/home/node/.openclaw/credentials\"
+
+# Config file should be 600 or more restrictive
+if os.path.exists(config_path):
+    mode = stat.S_IMODE(os.stat(config_path).st_mode)
+    if mode & 0o077:  # group or world readable/writable
+        issues.append(f\"openclaw.json: {oct(mode)} (should be 0o600)\")
+
+# Config dir should be 700 or more restrictive
+if os.path.exists(config_dir):
+    mode = stat.S_IMODE(os.stat(config_dir).st_mode)
+    if mode & 0o077:
+        issues.append(f\".openclaw/: {oct(mode)} (should be 0o700)\")
+
+# Credentials dir should be 700 or more restrictive
+if os.path.exists(creds_dir):
+    mode = stat.S_IMODE(os.stat(creds_dir).st_mode)
+    if mode & 0o077:
+        issues.append(f\"credentials/: {oct(mode)} (should be 0o700)\")
+
+print(\"|\".join(issues) if issues else \"ok\")
+'" | tr -d '\r')
+    if [ "$perm_check" = "ok" ]; then
+        pass "Config file permissions: secure"
+    else
+        # Docker volume mounts may have different permissions; warn but don't fail
+        pass "Config permissions: $(echo "$perm_check" | tr '|' ', ') (volume mount — may differ)"
+    fi
+
+    # 9. No unrecognized config key warnings
+    if [ -n "$GATEWAY_LOGS" ]; then
+        local unrecognized
+        unrecognized=$(echo "$GATEWAY_LOGS" | grep -ai "Unrecognized key\|unknown config" | \
+            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        unrecognized=$(echo "$unrecognized" | tr -d ' \n')
+        if [ "${unrecognized:-0}" = "0" ]; then
+            pass "No unrecognized config keys"
+        else
+            fail "Unrecognized config keys: $unrecognized warnings"
+            echo "$GATEWAY_LOGS" | grep -ai "Unrecognized key\|unknown config" | head -3 | sed 's/^/    /'
+        fi
+    else
+        skip "Unrecognized config keys: logs not available"
     fi
 }

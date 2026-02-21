@@ -1,21 +1,22 @@
 {
-  "_source": "Extracted from docs.openclaw.ai on 2026-02-20",
+  "_source": "Extracted from docs.openclaw.ai on 2026-02-21",
   "_compatible_versions": "v2026.2.15+",
   "_pages": [
     "docs.openclaw.ai/automation/cron-jobs",
     "docs.openclaw.ai/cli/cron",
-    "docs.openclaw.ai/concepts/model-providers.md",
-    "docs.openclaw.ai/concepts/model-failover.md",
+    "docs.openclaw.ai/concepts/model-providers",
+    "docs.openclaw.ai/concepts/model-failover",
+    "docs.openclaw.ai/concepts/sessions",
     "docs.openclaw.ai/gateway/health",
     "docs.openclaw.ai/gateway/security",
+    "docs.openclaw.ai/gateway/configuration",
+    "docs.openclaw.ai/gateway/trusted-proxy-auth",
     "docs.openclaw.ai/channels/discord",
     "docs.openclaw.ai/channels/slack",
-    "docs.openclaw.ai/tools/exec-approvals",
-    "docs.openclaw.ai/plugins/manifest",
-    "docs.openclaw.ai/gateway/configuration",
     "docs.openclaw.ai/channels/pairing",
     "docs.openclaw.ai/channels/channel-routing",
-    "docs.openclaw.ai/gateway/trusted-proxy-auth",
+    "docs.openclaw.ai/tools/exec-approvals",
+    "docs.openclaw.ai/plugins/manifest",
     "docs.openclaw.ai/install/docker"
   ],
   "cron": {
@@ -30,43 +31,126 @@
     "payload_kinds": {
       "main": "systemEvent",
       "isolated": "agentTurn"
-    }
+    },
+    "wake_modes": ["now", "next-heartbeat"],
+    "thinking_levels": ["off", "minimal", "low", "medium", "high", "xhigh"]
   },
   "models": {
     "ref_format": "^[a-z][a-z0-9_-]*/[a-z0-9._-]+$",
     "custom_provider_required_fields": ["baseUrl", "api"],
-    "api_types": ["openai-completions", "anthropic-messages"],
+    "api_types": ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"],
     "builtin_providers": [
       "openai", "anthropic", "opencode", "openai-codex",
       "google", "google-vertex", "google-antigravity", "google-gemini-cli",
       "zai", "vercel-ai-gateway", "openrouter", "xai", "groq",
       "cerebras", "mistral", "github-copilot", "huggingface",
-      "ollama", "vllm"
-    ]
+      "ollama", "vllm", "lmstudio"
+    ],
+    "aliases": {
+      "opus": "anthropic/claude-opus-4-6",
+      "sonnet": "anthropic/claude-sonnet-4-5",
+      "gpt": "openai/gpt-5.2",
+      "gemini": "google/gemini-3-pro-preview",
+      "gemini-flash": "google/gemini-3-flash-preview"
+    },
+    "merge_modes": ["merge", "replace"]
+  },
+  "agents": {
+    "thinking_levels": ["off", "minimal", "low", "medium", "high", "xhigh"],
+    "time_formats": ["auto", "12", "24"],
+    "verbose_levels": ["off", "on"],
+    "elevated_levels": ["off", "on"],
+    "bootstrap_max_chars": 20000,
+    "bootstrap_total_max_chars": 150000,
+    "default_context_tokens": 200000,
+    "default_max_concurrent": 3,
+    "default_timeout_seconds": 600
   },
   "gateway": {
     "auth_modes": ["none", "token", "password", "trusted-proxy"],
     "bind_modes": ["auto", "loopback", "lan", "tailnet", "custom"],
     "default_port": 18789,
-    "reload_modes": ["hybrid", "hot", "restart", "off"]
+    "reload_modes": ["hybrid", "hot", "restart", "off"],
+    "tailscale_modes": ["off", "serve", "funnel"],
+    "funnel_requires_auth": "password",
+    "funnel_allowed_ports": [443, 8443, 10000],
+    "discovery_mdns_modes": ["minimal", "full", "off"],
+    "control_ui_default_base_path": "/openclaw",
+    "dangerous_flags": [
+      "gateway.controlUi.dangerouslyDisableDeviceAuth",
+      "gateway.controlUi.allowInsecureAuth",
+      "hooks.mappings[].allowUnsafeExternalContent",
+      "tools.elevated.enabled"
+    ]
+  },
+  "session": {
+    "dm_scopes": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
+    "reset_modes": ["daily", "idle"],
+    "maintenance_modes": ["warn", "enforce"]
+  },
+  "messages": {
+    "queue_modes": ["steer", "followup", "collect", "steer-backlog", "steer+backlog", "queue", "interrupt"],
+    "typing_modes": ["never", "instant", "thinking", "message"],
+    "human_delay_modes": ["off", "natural", "custom"],
+    "ack_reaction_scopes": ["group-mentions", "group-all", "direct", "all"]
+  },
+  "tools": {
+    "profiles": ["minimal", "coding", "messaging", "full"],
+    "visibility_modes": ["self", "tree", "agent", "all"],
+    "exec_host_modes": ["gateway", "sandbox"],
+    "exec_security_modes": ["deny", "ask", "allow"]
+  },
+  "sandbox": {
+    "modes": ["off", "non-main", "all"],
+    "scopes": ["session", "agent", "shared"],
+    "workspace_access": ["none", "ro", "rw"]
+  },
+  "commands": {
+    "native_values": ["auto", true, false]
+  },
+  "logging": {
+    "console_styles": ["pretty", "compact", "json"],
+    "redact_modes": ["off", "tools", "all"]
+  },
+  "channels": {
+    "valid_names": ["whatsapp", "telegram", "discord", "slack", "signal", "imessage", "webchat", "mattermost", "feishu"],
+    "stream_modes": ["off", "partial", "block"],
+    "reply_to_modes": ["off", "first", "all"],
+    "reaction_notification_modes": ["off", "own", "all", "allowlist"],
+    "discord_activity_types": [0, 1, 2, 3, 4, 5],
+    "discord_status_values": ["online", "idle", "dnd", "invisible"]
   },
   "discord": {
     "dm_policies": ["pairing", "allowlist", "open", "disabled"],
     "group_policies": ["open", "allowlist", "disabled"],
-    "delivery_target_prefixes": ["user:", "channel:"]
+    "delivery_target_prefixes": ["user:", "channel:"],
+    "default_text_chunk_limit": 2000,
+    "default_history_limit": 20,
+    "default_media_max_mb": 8
   },
   "slack": {
     "dm_policies": ["pairing", "allowlist", "open", "disabled"],
     "group_policies": ["open", "allowlist", "disabled"],
     "modes": ["socket", "http"],
     "reply_to_modes": ["off", "first", "all"],
-    "delivery_target_prefixes": ["user:", "channel:"]
+    "delivery_target_prefixes": ["user:", "channel:"],
+    "bot_token_prefix": "xoxb-",
+    "app_token_prefix": "xapp-",
+    "default_text_chunk_limit": 4000,
+    "default_history_limit": 50,
+    "default_media_max_mb": 20,
+    "thread_history_scopes": ["thread", "channel"]
   },
   "security": {
     "operator_scopes": [
       "admin", "approvals", "config", "exec",
       "pairing", "read", "sessions", "tools", "write"
-    ]
+    ],
+    "file_permissions": {
+      "config_file": "600",
+      "config_dir": "700",
+      "credentials_dir": "700"
+    }
   },
   "exec_approvals": {
     "security_modes": ["deny", "allowlist", "full"],
@@ -88,7 +172,22 @@
     "max_pending_per_channel": 3,
     "supported_channels": ["telegram", "whatsapp", "signal", "imessage", "discord", "slack", "feishu"]
   },
-  "session": {
-    "dm_scopes": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"]
+  "heartbeat": {
+    "default_interval": "30m",
+    "ok_token": "HEARTBEAT_OK",
+    "default_ack_max_chars": 300,
+    "valid_targets": ["last"]
+  },
+  "docker": {
+    "default_memory": "1g",
+    "default_cpus": 1,
+    "default_pid_limit": 256,
+    "runtime_user": "node",
+    "runtime_uid": 1000,
+    "dns_defaults": ["1.1.1.1", "8.8.8.8"]
+  },
+  "memory": {
+    "provider_priority": ["local", "openai", "gemini", "voyage"],
+    "citation_modes": ["auto", "on", "off"]
   }
 }

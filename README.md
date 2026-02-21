@@ -2,7 +2,7 @@
 
 Post-update end-to-end tests for [OpenClaw](https://openclaw.ai) gateway deployments. Catches regressions after updates, config changes, or infrastructure modifications.
 
-**~75 tests across 10 categories** — runs in under 2 minutes. Zero dependencies beyond `bash`, `curl`, and `python3`.
+**~95 tests across 10 categories** — runs in under 2 minutes. Zero dependencies beyond `bash`, `curl`, and `python3`. All validations grounded in the [official OpenClaw docs](https://docs.openclaw.ai).
 
 ## Quick Start
 
@@ -25,16 +25,16 @@ cp .env.example .env
 
 | Section | Tests | Requires |
 |---------|-------|----------|
-| **Core** | Gateway health, HTTP, version, CPU, memory, PIDs | Gateway URL |
-| **Config** | Schema compliance, model format, providers, auth modes | Container access |
-| **Cron** | Delivery fields, channels, modes, schedules | Container access |
-| **Plugins** | Registration, manifests, configSchema validity | Container access |
-| **Memory** | Health, CRUD round-trip, working memory | Memory server URL |
-| **Channels** | Slack/Discord connectivity and config | Explicitly enabled |
-| **Runtime** | Node.js version, container stability, volumes | Container access |
-| **Environment** | Env vars, error scanning, workspace health | Container access |
-| **Latency** | Gateway HTTP, memory health/search benchmarks | Gateway + memory |
-| **Custom Provider** | Endpoint reachability, per-model validation | Provider config |
+| **Core** (7) | Gateway health, HTTP, version, CPU, memory, PIDs | Gateway URL |
+| **Config** (20) | Schema compliance, model format, providers, auth/bind/reload modes, session reset, message queue/typing/delay modes, tailscale, funnel cross-check, logging, thinking levels, tool visibility | Container access |
+| **Cron** (13) | Delivery fields, channels, modes, schedules, session targets, thinking levels, wake modes | Container access |
+| **Plugins** (5) | Registration, manifests, configSchema validity | Container access |
+| **Memory** (15) | Health, CRUD round-trip, working memory | Memory server URL |
+| **Channels** (11) | Slack/Discord connectivity, dmPolicy, groupPolicy, mode, streamMode, replyToMode | Explicitly enabled |
+| **Runtime** (5) | Node.js version, container stability, volumes, user/uid, PID limits | Container access |
+| **Environment** (9) | Env vars, error scanning, workspace health, dangerous flags, file permissions, unrecognized keys | Container access |
+| **Latency** (3) | Gateway HTTP, memory health/search benchmarks | Gateway + memory |
+| **Custom Provider** (N) | Endpoint reachability, per-model validation | Provider config |
 
 Tests **skip** (not fail) when their feature isn't configured. Start with just a gateway URL and add more config as needed.
 
@@ -146,9 +146,33 @@ OPENCLAW_MEMORY_SERVER_URL="https://memory.your-project.run.app"
 3. **Schema validation**: Tests are grounded in `docs-schema.json` (extracted from official OpenClaw docs) rather than hardcoded values
 4. **Graceful degradation**: Each test module checks whether its prerequisites are met and skips cleanly if not
 
-## Updating `docs-schema.json`
+## `docs-schema.json` — What's Validated
 
-The bundled `docs-schema.json` contains validation values extracted from the official OpenClaw documentation. When OpenClaw releases a new version with config changes:
+The bundled `docs-schema.json` contains all testable enums and values extracted from 16 official [OpenClaw docs](https://docs.openclaw.ai) pages. Tests reference this schema instead of hardcoding values, so updating one file keeps all tests current.
+
+**Domains covered:**
+
+| Domain | Validated Values |
+|--------|-----------------|
+| **Gateway** | auth modes, bind modes, reload modes, tailscale modes, funnel constraints, mDNS discovery |
+| **Models** | 21 built-in providers, ref format regex, 4 API types, provider required fields, model aliases |
+| **Agents** | thinking levels, time formats, bootstrap char limits, context/timeout defaults |
+| **Cron** | delivery fields/channels/modes, schedule kinds, session targets, payload alignment, wake modes, thinking levels |
+| **Session** | DM scopes, reset modes, maintenance modes |
+| **Messages** | queue modes, typing modes, human delay modes, ack reaction scopes |
+| **Tools** | profiles, visibility modes, exec host/security modes |
+| **Sandbox** | modes, scopes, workspace access levels |
+| **Channels** | DM/group policies, stream modes, reply-to modes, reaction notification modes, Slack/Discord-specific settings |
+| **Security** | 9 operator scopes, file permissions, exec approval modes |
+| **Plugins** | manifest required fields |
+| **Docker** | default resource limits, runtime user/uid, DNS defaults |
+| **Logging** | console styles, redaction modes |
+| **Heartbeat** | default interval, OK token, ack max chars |
+| **Memory** | provider priority, citation modes |
+
+### Updating `docs-schema.json`
+
+When OpenClaw releases a new version with config changes:
 
 1. Check the [OpenClaw docs](https://docs.openclaw.ai) for updated values
 2. Update the relevant sections in `docs-schema.json`
