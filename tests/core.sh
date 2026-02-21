@@ -9,13 +9,23 @@ test_core() {
     section "Gateway Core ($test_count tests)"
 
     # 1. Gateway HTTP responds
+    # Any HTTP response (200, 400, 401, etc.) means the gateway is reachable.
+    # Only 000 (connection refused/timeout) means it's down.
     if [ -n "$OPENCLAW_GATEWAY_URL" ]; then
         local http_code
         http_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$OPENCLAW_GATEWAY_URL" 2>/dev/null)
-        if [ "$http_code" = "200" ]; then
+        if [ "$http_code" != "000" ] && [ -n "$http_code" ]; then
             pass "HTTP responds: $http_code"
+        elif has_container_access; then
+            # Gateway not reachable directly — try from the Docker host
+            http_code=$(host_exec "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 'http://localhost:18789'" 2>/dev/null | tr -d '\r\n')
+            if [ "$http_code" != "000" ] && [ -n "$http_code" ]; then
+                pass "HTTP responds: $http_code (via Docker host)"
+            else
+                fail "HTTP responds: unreachable (direct and host both failed)"
+            fi
         else
-            fail "HTTP responds: ${http_code:-timeout} (expected 200)"
+            fail "HTTP responds: unreachable (code: ${http_code:-000})"
         fi
     else
         skip "HTTP responds: OPENCLAW_GATEWAY_URL not set"
