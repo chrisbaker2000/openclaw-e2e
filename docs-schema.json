@@ -1,0 +1,94 @@
+{
+  "_source": "Extracted from docs.openclaw.ai on 2026-02-20",
+  "_compatible_versions": "v2026.2.15+",
+  "_pages": [
+    "docs.openclaw.ai/automation/cron-jobs",
+    "docs.openclaw.ai/cli/cron",
+    "docs.openclaw.ai/concepts/model-providers.md",
+    "docs.openclaw.ai/concepts/model-failover.md",
+    "docs.openclaw.ai/gateway/health",
+    "docs.openclaw.ai/gateway/security",
+    "docs.openclaw.ai/channels/discord",
+    "docs.openclaw.ai/channels/slack",
+    "docs.openclaw.ai/tools/exec-approvals",
+    "docs.openclaw.ai/plugins/manifest",
+    "docs.openclaw.ai/gateway/configuration",
+    "docs.openclaw.ai/channels/pairing",
+    "docs.openclaw.ai/channels/channel-routing",
+    "docs.openclaw.ai/gateway/trusted-proxy-auth",
+    "docs.openclaw.ai/install/docker"
+  ],
+  "cron": {
+    "delivery_fields": {
+      "canonical_recipient": "to",
+      "wrong_alternatives": ["target"],
+      "mode_values": ["announce", "webhook", "none"],
+      "channel_values": ["whatsapp", "telegram", "discord", "slack", "mattermost", "signal", "imessage", "last"]
+    },
+    "schedule_kinds": ["at", "every", "cron"],
+    "session_targets": ["main", "isolated"],
+    "payload_kinds": {
+      "main": "systemEvent",
+      "isolated": "agentTurn"
+    }
+  },
+  "models": {
+    "ref_format": "^[a-z][a-z0-9_-]*/[a-z0-9._-]+$",
+    "custom_provider_required_fields": ["baseUrl", "api"],
+    "api_types": ["openai-completions", "anthropic-messages"],
+    "builtin_providers": [
+      "openai", "anthropic", "opencode", "openai-codex",
+      "google", "google-vertex", "google-antigravity", "google-gemini-cli",
+      "zai", "vercel-ai-gateway", "openrouter", "xai", "groq",
+      "cerebras", "mistral", "github-copilot", "huggingface",
+      "ollama", "vllm"
+    ]
+  },
+  "gateway": {
+    "auth_modes": ["none", "token", "password", "trusted-proxy"],
+    "bind_modes": ["auto", "loopback", "lan", "tailnet", "custom"],
+    "default_port": 18789,
+    "reload_modes": ["hybrid", "hot", "restart", "off"]
+  },
+  "discord": {
+    "dm_policies": ["pairing", "allowlist", "open", "disabled"],
+    "group_policies": ["open", "allowlist", "disabled"],
+    "delivery_target_prefixes": ["user:", "channel:"]
+  },
+  "slack": {
+    "dm_policies": ["pairing", "allowlist", "open", "disabled"],
+    "group_policies": ["open", "allowlist", "disabled"],
+    "modes": ["socket", "http"],
+    "reply_to_modes": ["off", "first", "all"],
+    "delivery_target_prefixes": ["user:", "channel:"]
+  },
+  "security": {
+    "operator_scopes": [
+      "admin", "approvals", "config", "exec",
+      "pairing", "read", "sessions", "tools", "write"
+    ]
+  },
+  "exec_approvals": {
+    "security_modes": ["deny", "allowlist", "full"],
+    "ask_modes": ["off", "on-miss", "always"],
+    "ask_fallback_modes": ["deny", "allowlist", "full"],
+    "default_safe_bins": ["jq", "cut", "uniq", "head", "tail", "tr", "wc"]
+  },
+  "plugins": {
+    "manifest_required_fields": ["id", "configSchema"]
+  },
+  "config": {
+    "include_max_depth": 10,
+    "rpc_rate_limit": {"requests": 3, "per_seconds": 60},
+    "restart_cooldown_seconds": 30
+  },
+  "pairing": {
+    "code_length": 8,
+    "code_expiry_hours": 1,
+    "max_pending_per_channel": 3,
+    "supported_channels": ["telegram", "whatsapp", "signal", "imessage", "discord", "slack", "feishu"]
+  },
+  "session": {
+    "dm_scopes": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"]
+  }
+}
