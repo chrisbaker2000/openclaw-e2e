@@ -100,9 +100,11 @@ main() {
     test_custom_provider
 
     # Run local deployment-specific tests (tests/local/*.sh)
-    for local_fn in "${LOCAL_TEST_FUNCTIONS[@]}"; do
-        "$local_fn"
-    done
+    if [ ${#LOCAL_TEST_FUNCTIONS[@]} -gt 0 ]; then
+        for local_fn in "${LOCAL_TEST_FUNCTIONS[@]}"; do
+            "$local_fn"
+        done
+    fi
 
     # Summary
     print_summary

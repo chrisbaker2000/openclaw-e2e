@@ -121,24 +121,25 @@ print(int(elapsed))
     fi
 
     # 4. Skills compilation time (parsed from gateway logs)
-    #    Measures how long the gateway takes to compile skills at startup.
+    #    Measures most recent skills.bins response time from WebSocket logs.
     #    Slow compilation blocks first response; useful to catch on underpowered hardware.
     if has_container_access && [ -n "$GATEWAY_LOGS" ]; then
         local skills_ms
         skills_ms=$(echo "$GATEWAY_LOGS" | python3 -c "
 import re, sys
 lines = sys.stdin.read()
-# Look for 'skills compiled in Xms' or 'Compiled N skills in Xms' patterns
+# Pattern 1: 'skills.bins Nms' (WebSocket response logs)
+matches = re.findall(r'skills\.bins\s+(\d+)\s*ms', lines)
+if matches:
+    # Report the most recent value
+    print(matches[-1])
+    sys.exit(0)
+# Pattern 2: 'skills compiled in Nms' or 'Compiled N skills in Nms'
 m = re.search(r'(?:skills?\s+compiled?|compiled?\s+\d+\s+skills?)\s+in\s+(\d+)\s*ms', lines, re.IGNORECASE)
 if m:
     print(m.group(1))
-else:
-    # Try alternate format: 'skill compilation: Xms' or timing logs
-    m2 = re.search(r'skill\s+compilation[:\s]+(\d+)\s*ms', lines, re.IGNORECASE)
-    if m2:
-        print(m2.group(1))
-    else:
-        print('')
+    sys.exit(0)
+print('')
 " 2>/dev/null | tr -d '\r\n')
         if [ -n "$skills_ms" ] && [ "$skills_ms" -gt 0 ] 2>/dev/null; then
             if [ "$skills_ms" -le "$OPENCLAW_MAX_SKILLS_MS" ] 2>/dev/null; then
@@ -153,46 +154,49 @@ else:
         skip "Skills compilation: no container access or logs"
     fi
 
-    # 5. Gateway startup time (time from container start to first request served)
-    #    Parses StartedAt from inspect and first log timestamp to estimate cold-start duration.
+    # 5. Gateway startup time (time from container start to "listening on" log)
+    #    Parses StartedAt from inspect and finds the "listening on" log line.
     if has_container_access && [ -n "$GATEWAY_INSPECT" ] && [ -n "$GATEWAY_LOGS" ]; then
         local startup_secs
-        startup_secs=$(python3 -c "
+        startup_secs=$(echo "$GATEWAY_INSPECT" | python3 -c "
 import json, re, sys
 from datetime import datetime
 
-inspect = json.loads('''$GATEWAY_INSPECT''')
-started = inspect[0].get('State', {}).get('StartedAt', '')
+d = json.load(sys.stdin)
+started = d[0].get('State', {}).get('StartedAt', '')
 if not started:
     sys.exit(1)
-# Parse ISO timestamp (Docker format: 2026-02-27T12:34:56.123Z)
 started_dt = datetime.fromisoformat(started.replace('Z', '+00:00').split('.')[0])
-
-# Find 'ready' or 'listening' or first request-handling log line
-logs = '''$(echo "$GATEWAY_LOGS" | head -50)'''
-ready_ts = None
-for line in logs.splitlines():
-    if any(kw in line.lower() for kw in ['listening on', 'ready', 'gateway started', 'http server']):
+print(started_dt.strftime('%Y-%m-%dT%H:%M:%S'))
+" 2>/dev/null | tr -d '\r\n')
+        local listen_ts
+        listen_ts=$(echo "$GATEWAY_LOGS" | python3 -c "
+import re, sys
+for line in sys.stdin:
+    if 'listening on' in line.lower():
         m = re.search(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})', line)
         if m:
-            ready_ts = m.group(1)
-            break
-if ready_ts:
-    ready_dt = datetime.fromisoformat(ready_ts)
-    # Align timezones (strip tzinfo for comparison)
-    diff = (ready_dt.replace(tzinfo=None) - started_dt.replace(tzinfo=None)).total_seconds()
-    if diff > 0:
-        print(int(diff))
-    else:
-        print('')
-else:
-    print('')
+            print(m.group(1))
+            sys.exit(0)
+print('')
 " 2>/dev/null | tr -d '\r\n')
-        if [ -n "$startup_secs" ] && [ "$startup_secs" -gt 0 ] 2>/dev/null; then
-            if [ "$startup_secs" -le 300 ]; then
-                pass "Gateway startup: ${startup_secs}s"
+        if [ -n "$startup_secs" ] && [ -n "$listen_ts" ]; then
+            local diff_s
+            diff_s=$(python3 -c "
+from datetime import datetime
+s = datetime.fromisoformat('$startup_secs')
+l = datetime.fromisoformat('$listen_ts')
+d = int((l - s).total_seconds())
+print(d if d > 0 else '')
+" 2>/dev/null | tr -d '\r\n')
+            if [ -n "$diff_s" ] && [ "$diff_s" -gt 0 ] 2>/dev/null; then
+                if [ "$diff_s" -le 300 ]; then
+                    pass "Gateway startup: ${diff_s}s"
+                else
+                    fail "Gateway startup: ${diff_s}s (> 300s — may indicate a problem)"
+                fi
             else
-                fail "Gateway startup: ${startup_secs}s (> 300s — may indicate a problem)"
+                skip "Gateway startup: could not calculate duration"
             fi
         else
             skip "Gateway startup: could not determine from logs"

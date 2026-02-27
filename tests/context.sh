@@ -12,7 +12,7 @@ test_context() {
     # 1. Workspace root .md file count
     # Exclude LAST_CHAT_*.md (ephemeral per-user handoff files created by session-memory-bridge)
     local md_count
-    md_count=$(container_exec "ls $WS/*.md 2>/dev/null | grep -v LAST_CHAT_ | wc -l" | tr -d ' \n\r')
+    md_count=$(container_exec "find $WS -maxdepth 1 -name '*.md' ! -name 'LAST_CHAT_*' -type f 2>/dev/null | wc -l" | tr -d ' \n\r')
     if [ "${md_count:-0}" -le "$OPENCLAW_MAX_WORKSPACE_MD_FILES" ] 2>/dev/null; then
         pass "Workspace .md count: $md_count (max $OPENCLAW_MAX_WORKSPACE_MD_FILES)"
     else
