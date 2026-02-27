@@ -48,7 +48,14 @@ test_core() {
 
     # 3. Version
     local version
-    version=$(container_exec "node -p \"require('/app/package.json').version\"")
+    if [ "$OPENCLAW_NATIVE" = "true" ]; then
+        version=$(openclaw --version 2>/dev/null | head -1 | sed 's/[^0-9.]//g')
+        if [ -z "$version" ] && [ -n "$OPENCLAW_INSTALL_DIR" ]; then
+            version=$(node -p "require('$OPENCLAW_INSTALL_DIR/package.json').version" 2>/dev/null)
+        fi
+    else
+        version=$(container_exec "node -p \"require('/app/package.json').version\"")
+    fi
     if [ -n "$OPENCLAW_EXPECTED_VERSION" ]; then
         if [ "$version" = "$OPENCLAW_EXPECTED_VERSION" ]; then
             pass "Version: $version"

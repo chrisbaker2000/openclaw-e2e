@@ -4,7 +4,11 @@
 test_runtime() {
     should_run "runtime" || return 0
     has_container_access || return 0
-    section "Container Runtime (7 tests)"
+    if [ "$OPENCLAW_NATIVE" = "true" ]; then
+        section "Process Runtime (7 tests)"
+    else
+        section "Container Runtime (7 tests)"
+    fi
 
     # 1. Node.js version >= 22
     local node_ver
@@ -42,31 +46,43 @@ print(d[0].get('RestartCount', -1))
         skip "Container stability: inspect data not available"
     fi
 
-    # 3. Volume mounts accessible
+    # 3. Config accessible (volume mounts in Docker, filesystem in native)
     local vol_ok
-    vol_ok=$(container_exec "test -f /home/node/.openclaw/openclaw.json && echo yes")
+    vol_ok=$(container_exec "test -f $_PROC_CONFIG_DIR/openclaw.json && echo yes")
     if [ "$vol_ok" = "yes" ]; then
-        pass "Volume mounts: config file accessible"
-    else
-        fail "Volume mounts: config not accessible inside container"
-    fi
-
-    # 4. Container user is 'node' (per docs: runtime user = node, uid 1000)
-    local container_user
-    container_user=$(container_exec "whoami 2>/dev/null || id -un 2>/dev/null || echo unknown" | tr -d '\r\n')
-    if [ "$container_user" = "node" ]; then
-        pass "Container user: node"
-    elif [ -n "$container_user" ]; then
-        # Docker may be running as root or custom user — warn but check uid
-        local container_uid
-        container_uid=$(container_exec "id -u 2>/dev/null || echo unknown" | tr -d '\r\n')
-        if [ "$container_uid" = "1000" ]; then
-            pass "Container user: uid 1000 ($container_user)"
+        if [ "$OPENCLAW_NATIVE" = "true" ]; then
+            pass "Config accessible: $_PROC_CONFIG_DIR/openclaw.json"
         else
-            fail "Container user: $container_user (uid $container_uid) — expected 'node' (uid 1000)"
+            pass "Volume mounts: config file accessible"
         fi
     else
-        skip "Container user: could not determine"
+        if [ "$OPENCLAW_NATIVE" = "true" ]; then
+            fail "Config not found: $_PROC_CONFIG_DIR/openclaw.json"
+        else
+            fail "Volume mounts: config not accessible inside container"
+        fi
+    fi
+
+    # 4. Runtime user (Docker expects 'node'/uid 1000; not applicable in native mode)
+    if [ "$OPENCLAW_NATIVE" = "true" ]; then
+        skip "Runtime user: not applicable in native mode (no container user constraint)"
+    else
+        local container_user
+        container_user=$(container_exec "whoami 2>/dev/null || id -un 2>/dev/null || echo unknown" | tr -d '\r\n')
+        if [ "$container_user" = "node" ]; then
+            pass "Container user: node"
+        elif [ -n "$container_user" ]; then
+            # Docker may be running as root or custom user — warn but check uid
+            local container_uid
+            container_uid=$(container_exec "id -u 2>/dev/null || echo unknown" | tr -d '\r\n')
+            if [ "$container_uid" = "1000" ]; then
+                pass "Container user: uid 1000 ($container_user)"
+            else
+                fail "Container user: $container_user (uid $container_uid) — expected 'node' (uid 1000)"
+            fi
+        else
+            skip "Container user: could not determine"
+        fi
     fi
 
     # 5. Container PID limit reasonable (per docs: default 256)

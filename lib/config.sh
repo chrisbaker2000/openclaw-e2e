@@ -16,8 +16,12 @@ OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-}"
 
 # ─── Container access ─────────────────────────────────────────────
 OPENCLAW_SSH_HOST="${OPENCLAW_SSH_HOST:-}"
-OPENCLAW_DOCKER_BIN="${OPENCLAW_DOCKER_BIN:-docker}"
+OPENCLAW_DOCKER_BIN="${OPENCLAW_DOCKER_BIN:-}"
 OPENCLAW_CONTAINER="${OPENCLAW_CONTAINER:-openclaw-gateway}"
+
+# ─── Native mode (no Docker — gateway runs directly on host) ─────
+OPENCLAW_NATIVE="${OPENCLAW_NATIVE:-false}"
+OPENCLAW_INSTALL_DIR="${OPENCLAW_INSTALL_DIR:-}"
 
 # ─── Memory server ────────────────────────────────────────────────
 OPENCLAW_MEMORY_SERVER_URL="${OPENCLAW_MEMORY_SERVER_URL:-}"
@@ -89,6 +93,15 @@ parse_args() {
         esac
     done
 }
+
+# ─── Computed paths ───────────────────────────────────────────────
+# Config directory inside the runtime environment (container or native host).
+# Tests use this instead of hardcoding /home/node/.openclaw.
+if [ "$OPENCLAW_NATIVE" = "true" ]; then
+    _PROC_CONFIG_DIR="$OPENCLAW_MAC_CONFIG_DIR"
+else
+    _PROC_CONFIG_DIR="/home/node/.openclaw"
+fi
 
 # ─── Docs schema path ─────────────────────────────────────────────
 DOCS_SCHEMA="$SCRIPT_DIR/docs-schema.json"

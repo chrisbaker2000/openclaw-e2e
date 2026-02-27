@@ -35,6 +35,7 @@ GATEWAY_URL=""
 SSH_HOST=""
 DOCKER_BIN=""
 CONTAINER="openclaw-gateway"
+NATIVE_MODE=""
 MEMORY_URL=""
 MEMORY_NS="default"
 SLACK_ENABLED=""
@@ -56,67 +57,101 @@ if [ -z "$GATEWAY_URL" ]; then
     exit 1
 fi
 
-# ─── Discover container access ────────────────────────────────────────
+# ─── Detect native install ──────────────────────────────────────────
 echo ""
-echo -e "${CYAN}Checking container access...${NC}"
+echo -e "${CYAN}Checking for native OpenClaw install...${NC}"
 
-# Try local Docker first
-if command -v docker &>/dev/null; then
-    if docker inspect "$CONTAINER" &>/dev/null 2>&1; then
-        DOCKER_BIN="docker"
-        echo -e "${GREEN}  Found local Docker container '$CONTAINER'${NC}"
+if command -v openclaw &>/dev/null; then
+    OC_VERSION=$(openclaw --version 2>/dev/null | head -1)
+    # Validate it's actually OpenClaw (version output should be numeric-ish)
+    if [ -n "$OC_VERSION" ] && [ -d "${OPENCLAW_MAC_CONFIG_DIR:-$HOME/.openclaw}" ]; then
+        echo -e "${GREEN}  Found native OpenClaw: $OC_VERSION${NC}"
+        # Check if a Docker container also exists
+        if command -v docker &>/dev/null && docker inspect "$CONTAINER" &>/dev/null 2>&1; then
+            echo -e "${YELLOW}  NOTE: Docker container '$CONTAINER' also found.${NC}"
+            if ! $AUTO_MODE; then
+                read -rp "  Use native mode? [Y/n] " use_native
+                [[ "$use_native" == [nN] ]] || NATIVE_MODE="true"
+            else
+                # Auto mode: prefer native when CLI is installed
+                NATIVE_MODE="true"
+            fi
+        else
+            NATIVE_MODE="true"
+        fi
     fi
 fi
 
-# If no local container, ask about SSH
-if [ -z "$DOCKER_BIN" ] && ! $AUTO_MODE; then
-    echo "  No local container found."
-    read -rp "SSH host for remote Docker (leave empty for API-only): " SSH_HOST
-    if [ -n "$SSH_HOST" ]; then
-        echo -e "${CYAN}  Testing SSH connection to $SSH_HOST...${NC}"
-        if ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_HOST" "echo ok" &>/dev/null; then
-            echo -e "${GREEN}  SSH connected.${NC}"
-            # Try to find Docker binary
-            for try_bin in docker /usr/bin/docker /usr/local/bin/docker; do
-                if ssh "$SSH_HOST" "command -v $try_bin || test -x $try_bin" &>/dev/null 2>&1; then
-                    DOCKER_BIN="$try_bin"
-                    echo -e "${GREEN}  Found Docker at $DOCKER_BIN${NC}"
-                    break
-                fi
-            done
-            # Check QNAP Container Station path
-            if [ -z "$DOCKER_BIN" ]; then
-                QNAP_DOCKER="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
-                if ssh "$SSH_HOST" "test -x $QNAP_DOCKER" &>/dev/null 2>&1; then
-                    DOCKER_BIN="$QNAP_DOCKER"
-                    echo -e "${GREEN}  Found QNAP Docker at $DOCKER_BIN${NC}"
-                fi
-            fi
-            if [ -z "$DOCKER_BIN" ]; then
-                read -rp "  Docker binary path on remote host: " DOCKER_BIN
-            fi
-        else
-            echo -e "${RED}  SSH connection failed. Continuing in API-only mode.${NC}"
-            SSH_HOST=""
+# ─── Discover container access ────────────────────────────────────────
+if [ "$NATIVE_MODE" != "true" ]; then
+    echo ""
+    echo -e "${CYAN}Checking container access...${NC}"
+
+    # Try local Docker first
+    if command -v docker &>/dev/null; then
+        if docker inspect "$CONTAINER" &>/dev/null 2>&1; then
+            DOCKER_BIN="docker"
+            echo -e "${GREEN}  Found local Docker container '$CONTAINER'${NC}"
         fi
     fi
+
+    # If no local container, ask about SSH
+    if [ -z "$DOCKER_BIN" ] && ! $AUTO_MODE; then
+        echo "  No local container found."
+        read -rp "SSH host for remote Docker (leave empty for API-only): " SSH_HOST
+        if [ -n "$SSH_HOST" ]; then
+            echo -e "${CYAN}  Testing SSH connection to $SSH_HOST...${NC}"
+            if ssh -o ConnectTimeout=5 -o BatchMode=yes "$SSH_HOST" "echo ok" &>/dev/null; then
+                echo -e "${GREEN}  SSH connected.${NC}"
+                # Try to find Docker binary
+                for try_bin in docker /usr/bin/docker /usr/local/bin/docker; do
+                    if ssh "$SSH_HOST" "command -v $try_bin || test -x $try_bin" &>/dev/null 2>&1; then
+                        DOCKER_BIN="$try_bin"
+                        echo -e "${GREEN}  Found Docker at $DOCKER_BIN${NC}"
+                        break
+                    fi
+                done
+                # Check QNAP Container Station path
+                if [ -z "$DOCKER_BIN" ]; then
+                    QNAP_DOCKER="/share/CACHEDEV1_DATA/.qpkg/container-station/bin/docker"
+                    if ssh "$SSH_HOST" "test -x $QNAP_DOCKER" &>/dev/null 2>&1; then
+                        DOCKER_BIN="$QNAP_DOCKER"
+                        echo -e "${GREEN}  Found QNAP Docker at $DOCKER_BIN${NC}"
+                    fi
+                fi
+                if [ -z "$DOCKER_BIN" ]; then
+                    read -rp "  Docker binary path on remote host: " DOCKER_BIN
+                fi
+            else
+                echo -e "${RED}  SSH connection failed. Continuing in API-only mode.${NC}"
+                SSH_HOST=""
+            fi
+        fi
+    fi
+else
+    echo -e "${GREEN}  Using native mode (no Docker needed)${NC}"
 fi
 
 # ─── Discover memory server ──────────────────────────────────────────
 echo ""
 echo -e "${CYAN}Checking for memory server...${NC}"
 
-# Try to read from gateway config if we have container access
-if [ -n "$DOCKER_BIN" ]; then
+# Try to read gateway config — from disk (native) or container (Docker)
+GW_CONFIG=""
+if [ "$NATIVE_MODE" = "true" ]; then
+    CONFIG_DIR="${OPENCLAW_MAC_CONFIG_DIR:-$HOME/.openclaw}"
+    GW_CONFIG=$(cat "$CONFIG_DIR/openclaw.json" 2>/dev/null || true)
+elif [ -n "$DOCKER_BIN" ]; then
     CONFIG_CMD="cat /home/node/.openclaw/openclaw.json 2>/dev/null"
     if [ -n "$SSH_HOST" ]; then
         GW_CONFIG=$(ssh "$SSH_HOST" "$DOCKER_BIN exec $CONTAINER sh -c '$CONFIG_CMD'" 2>/dev/null || true)
     else
         GW_CONFIG=$($DOCKER_BIN exec "$CONTAINER" sh -c "$CONFIG_CMD" 2>/dev/null || true)
     fi
+fi
 
-    if [ -n "$GW_CONFIG" ]; then
-        MEMORY_URL=$(echo "$GW_CONFIG" | python3 -c "
+if [ -n "$GW_CONFIG" ]; then
+    MEMORY_URL=$(echo "$GW_CONFIG" | python3 -c "
 import sys, json
 try:
     cfg = json.load(sys.stdin)
@@ -132,9 +167,9 @@ try:
 except: pass
 " 2>/dev/null || true)
 
-        if [ -n "$MEMORY_URL" ]; then
-            echo -e "${GREEN}  Found memory server: $MEMORY_URL${NC}"
-            MEMORY_NS=$(echo "$GW_CONFIG" | python3 -c "
+    if [ -n "$MEMORY_URL" ]; then
+        echo -e "${GREEN}  Found memory server: $MEMORY_URL${NC}"
+        MEMORY_NS=$(echo "$GW_CONFIG" | python3 -c "
 import sys, json
 try:
     cfg = json.load(sys.stdin)
@@ -146,7 +181,6 @@ try:
             print(ns); break
 except: print('default')
 " 2>/dev/null || echo "default")
-        fi
     fi
 fi
 
@@ -155,7 +189,7 @@ if [ -z "$MEMORY_URL" ] && ! $AUTO_MODE; then
 fi
 
 # ─── Discover channels ───────────────────────────────────────────────
-if [ -n "$DOCKER_BIN" ] && [ -n "${GW_CONFIG:-}" ]; then
+if [ -n "${GW_CONFIG:-}" ]; then
     HAS_SLACK=$(echo "$GW_CONFIG" | python3 -c "
 import sys, json
 try:
@@ -189,7 +223,11 @@ cat > "$ENV_FILE" << EOF
 OPENCLAW_GATEWAY_URL="$GATEWAY_URL"
 EOF
 
-if [ -n "$SSH_HOST" ]; then
+if [ "$NATIVE_MODE" = "true" ]; then
+    cat >> "$ENV_FILE" << EOF
+OPENCLAW_NATIVE=true
+EOF
+elif [ -n "$SSH_HOST" ]; then
     cat >> "$ENV_FILE" << EOF
 OPENCLAW_SSH_HOST="$SSH_HOST"
 OPENCLAW_DOCKER_BIN="$DOCKER_BIN"

@@ -57,6 +57,11 @@ fi
 parse_args "$@"
 
 # ─── Validate minimum config ──────────────────────────────────────
+# Default gateway URL for native mode (gateway is on this host)
+if [ "$OPENCLAW_NATIVE" = "true" ] && [ -z "$OPENCLAW_GATEWAY_URL" ]; then
+    OPENCLAW_GATEWAY_URL="http://localhost:18789"
+fi
+
 if [ -z "$OPENCLAW_GATEWAY_URL" ] && ! has_container_access; then
     echo -e "${RED}ERROR: No gateway configured.${NC}"
     echo -e "Set OPENCLAW_GATEWAY_URL in .env or run ./setup.sh"
@@ -73,7 +78,10 @@ main() {
 
     # Show active configuration
     echo -e "${DIM}Gateway:   ${OPENCLAW_GATEWAY_URL:-not set}${NC}"
-    if [ -n "$OPENCLAW_SSH_HOST" ]; then
+    if [ "$OPENCLAW_NATIVE" = "true" ]; then
+        echo -e "${DIM}Mode:      native (process on this host)${NC}"
+        echo -e "${DIM}Config:    $OPENCLAW_MAC_CONFIG_DIR${NC}"
+    elif [ -n "$OPENCLAW_SSH_HOST" ]; then
         echo -e "${DIM}Container: $OPENCLAW_SSH_HOST → $OPENCLAW_CONTAINER${NC}"
     elif has_container_access; then
         echo -e "${DIM}Container: local → $OPENCLAW_CONTAINER${NC}"

@@ -38,7 +38,7 @@ test_plugins() {
         local manifest_check
         manifest_check=$(container_exec "python3 -c '
 import json, os, glob
-ext_dir = \"/home/node/.openclaw/extensions\"
+ext_dir = \"$_PROC_CONFIG_DIR/extensions\"
 bad = []
 for plugin_dir in glob.glob(os.path.join(ext_dir, \"*/\")):
     manifest_path = os.path.join(plugin_dir, \"openclaw.plugin.json\")
@@ -69,7 +69,7 @@ print(\"|\".join(bad) if bad else \"ok\")
     local schema_valid
     schema_valid=$(container_exec "python3 -c '
 import json, os, glob
-ext_dir = \"/home/node/.openclaw/extensions\"
+ext_dir = \"$_PROC_CONFIG_DIR/extensions\"
 bad = []
 for plugin_dir in glob.glob(os.path.join(ext_dir, \"*/\")):
     manifest_path = os.path.join(plugin_dir, \"openclaw.plugin.json\")
@@ -100,7 +100,7 @@ print(\"|\".join(bad) if bad else \"ok\")
     local approvals_check
     approvals_check=$(container_exec "python3 -c '
 import json, os
-path = \"/home/node/.openclaw/exec-approvals.json\"
+path = \"$_PROC_CONFIG_DIR/exec-approvals.json\"
 if not os.path.exists(path):
     print(\"ok\")
 else:

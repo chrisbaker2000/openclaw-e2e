@@ -15,7 +15,7 @@ test_latency() {
     if [ -n "$gw_latency_url" ]; then
         local probe
         probe=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$gw_latency_url" 2>/dev/null)
-        if [ "$probe" = "000" ] && has_container_access; then
+        if [ "$probe" = "000" ] && has_container_access && [ "$OPENCLAW_NATIVE" != "true" ]; then
             # Not directly reachable — we'll test via Docker host
             gw_latency_url="http://localhost:18789"
             gw_latency_via=" (via Docker host)"
@@ -23,7 +23,7 @@ test_latency() {
     fi
 
     # Warmup: ping endpoints to ensure connections are hot
-    if [ -n "$gw_latency_via" ] && has_container_access; then
+    if [ -n "$gw_latency_via" ] && has_container_access && [ "$OPENCLAW_NATIVE" != "true" ]; then
         host_exec "curl -sf -o /dev/null 'http://localhost:18789'" 2>/dev/null || true
     elif [ -n "$OPENCLAW_GATEWAY_URL" ]; then
         curl -sf -o /dev/null --connect-timeout 3 "$OPENCLAW_GATEWAY_URL" 2>/dev/null || true

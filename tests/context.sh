@@ -7,7 +7,7 @@ test_context() {
     has_container_access || return 0
     section "Context Optimization (8 tests)"
 
-    local WS="/home/node/.openclaw/workspace"
+    local WS="$_PROC_CONFIG_DIR/workspace"
 
     # 1. Workspace root .md file count
     # Exclude LAST_CHAT_*.md (ephemeral per-user handoff files created by session-memory-bridge)

@@ -87,17 +87,31 @@ OPENCLAW_GATEWAY_URL="http://localhost:18789"
 
 Everything else is optional — tests skip cleanly when features aren't configured.
 
-### Container Access
+### Gateway Access
 
-Container access unlocks config, cron, plugin, runtime, environment, and context tests. Choose one method:
+Gateway access enables config validation, cron, plugin, runtime, environment, and context tests. Choose one method:
 
-| Method | When to Use | What to Set |
-|--------|-------------|-------------|
-| **Local Docker** | Gateway runs on this machine | `OPENCLAW_DOCKER_BIN="docker"` |
-| **SSH + Docker** | Gateway on a remote host (NAS, VPS) | `OPENCLAW_SSH_HOST="user@host"` + `OPENCLAW_DOCKER_BIN="docker"` |
-| **API-only** | No Docker access (cloud-hosted) | Leave both empty — only core + latency tests run |
+**Method A: SSH + Docker** (gateway on a remote host — NAS, VPS, etc.)
+```bash
+OPENCLAW_SSH_HOST="user@host"
+OPENCLAW_DOCKER_BIN="docker"
+OPENCLAW_CONTAINER="openclaw-gateway"
+```
 
-Container name defaults to `openclaw-gateway`. Override with `OPENCLAW_CONTAINER`.
+**Method B: Local Docker** (gateway in Docker on this machine)
+```bash
+OPENCLAW_DOCKER_BIN="docker"
+OPENCLAW_CONTAINER="openclaw-gateway"
+```
+
+**Method C: Native** (gateway runs directly on this machine, no Docker)
+```bash
+OPENCLAW_NATIVE=true
+# OPENCLAW_MAC_CONFIG_DIR="$HOME/.openclaw"  # Default — change if non-standard
+```
+Reads config files and logs from disk. Runs ~80 of ~95 tests. Docker-specific tests (inspect, stats, healthcheck) skip gracefully.
+
+**Method D: API-only** — leave all access vars empty. Only core HTTP, memory, and latency tests run (~36 tests).
 
 ### Optional Features
 
@@ -141,6 +155,22 @@ Available sections: `core`, `config`, `cron`, `plugins`, `memory`, `channels`, `
 
 ## Deployment Examples
 
+### Native Install (Mac Mini, Linux box, etc.)
+```bash
+OPENCLAW_GATEWAY_URL="http://localhost:18789"
+OPENCLAW_NATIVE=true
+OPENCLAW_MEMORY_SERVER_URL="https://memory.your-project.run.app"
+OPENCLAW_SLACK_ENABLED=true
+```
+
+### Local Docker Compose
+```bash
+OPENCLAW_GATEWAY_URL="http://localhost:18789"
+OPENCLAW_DOCKER_BIN="docker"
+OPENCLAW_CONTAINER="openclaw-gateway"
+OPENCLAW_SLACK_ENABLED=true
+```
+
 See [`examples/`](examples/) for ready-to-use `.env` templates:
 
 - **[`local-docker.env`](examples/local-docker.env)** — Gateway running locally via Docker Compose
@@ -149,10 +179,11 @@ See [`examples/`](examples/) for ready-to-use `.env` templates:
 
 ## How It Works
 
-1. **Pre-fetch** — Caches gateway logs, config, and inspect data in one batch (minimizes SSH round-trips)
-2. **Transport layer** — Abstracts SSH+Docker, local Docker, and API-only access behind `container_exec` / `host_exec`
-3. **Schema validation** — Tests reference [`docs-schema.json`](docs-schema.json) (extracted from 16 [official docs](https://docs.openclaw.ai) pages) instead of hardcoded values
-4. **Graceful degradation** — Each module checks prerequisites and skips cleanly if not met
+1. **Pre-fetch**: Caches gateway logs, config, inspect data, and stats in one batch to minimize SSH round-trips
+2. **Transport layer**: Abstracts SSH+Docker, local Docker, native, and API-only access behind a unified interface (`lib/transport.sh`)
+3. **Path abstraction**: Uses `_PROC_CONFIG_DIR` to resolve config paths correctly in both Docker (`/home/node/.openclaw`) and native (`~/.openclaw`) environments
+4. **Schema validation**: Tests are grounded in `docs-schema.json` (extracted from official OpenClaw docs) rather than hardcoded values
+5. **Graceful degradation**: Each test module checks whether its prerequisites are met and skips cleanly if not — Docker-only features (inspect, stats) skip automatically in native mode
 
 ## Adding Your Own Tests
 
@@ -174,6 +205,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 - **curl** (for HTTP tests)
 - **python3** (for JSON parsing — no `jq` dependency)
 - **ssh** (only if using SSH container access)
+- **docker** CLI (only if using local container access)
+
+## Contributing
+
+Issues and PRs welcome. When adding new tests:
+
+1. Place them in the appropriate `tests/*.sh` module
+2. Use `pass`, `fail`, or `skip` from `lib/output.sh`
+3. Guard with `has_container_access` or config var checks
+4. Use `container_exec` / `container_logs` from `lib/transport.sh` for gateway operations
+5. Use `$_PROC_CONFIG_DIR` instead of hardcoding `/home/node/.openclaw` — this resolves correctly in all modes
+6. Prefer `docs-schema.json` values over hardcoded strings
 
 ## License
 
