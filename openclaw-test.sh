@@ -13,7 +13,7 @@
 # Configuration: create a .env file (see .env.example or run ./setup.sh)
 #
 # Sections: core, config, cron, plugins, memory, channels,
-#           runtime, environment, latency, custom-provider
+#           runtime, environment, context, latency, custom-provider
 #           + any tests/local/*.sh modules (deployment-specific)
 
 set -uo pipefail
@@ -35,6 +35,7 @@ source "$SCRIPT_DIR/tests/memory.sh"
 source "$SCRIPT_DIR/tests/channels.sh"
 source "$SCRIPT_DIR/tests/runtime.sh"
 source "$SCRIPT_DIR/tests/environment.sh"
+source "$SCRIPT_DIR/tests/context.sh"
 source "$SCRIPT_DIR/tests/latency.sh"
 source "$SCRIPT_DIR/tests/custom-provider.sh"
 
@@ -94,6 +95,7 @@ main() {
     test_channels
     test_runtime
     test_environment
+    test_context
     test_latency
     test_custom_provider
 

@@ -5,7 +5,7 @@
 test_config() {
     should_run "config" || return 0
     has_container_access || return 0
-    section "Config Schema Compliance (20 tests)"
+    section "Config Schema Compliance (22 tests)"
 
     if [ -z "$GATEWAY_CONFIG" ]; then
         fail "Gateway config: not readable"
@@ -473,5 +473,61 @@ else:
         fi
     else
         skip "Tool sessions visibility: shared config not readable"
+    fi
+
+    # 21. Session maintenance mode valid (per docs: warn, enforce)
+    if [ -n "$shared_config" ]; then
+        local maint_check
+        maint_check=$(echo "$shared_config" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+schema = json.load(open('$DOCS_SCHEMA'))
+valid = set(schema['session']['maintenance_modes'])
+mode = d.get('session', {}).get('maintenance', {}).get('mode', '')
+if not mode:
+    print('ok')
+elif mode in valid:
+    print('ok')
+else:
+    print(f'invalid: {mode}')
+" 2>/dev/null)
+        if [ "$maint_check" = "ok" ]; then
+            pass "Session maintenance mode: valid"
+        else
+            fail "Session maintenance mode $maint_check"
+        fi
+    else
+        skip "Session maintenance mode: shared config not readable"
+    fi
+
+    # 22. Cron delivery uses canonical "to" field (not "target")
+    if has_container_access; then
+        local cron_field_check
+        cron_field_check=$(container_exec "python3 -c '
+import json, os
+path = \"/home/node/.openclaw/cron/jobs.json\"
+if not os.path.exists(path):
+    print(\"no-cron\")
+else:
+    with open(path) as f:
+        jobs = json.load(f)
+    if not isinstance(jobs, list):
+        jobs = jobs.get(\"jobs\", [])
+    bad = []
+    for j in jobs:
+        delivery = j.get(\"delivery\", {})
+        if \"target\" in delivery and \"to\" not in delivery:
+            bad.append(j.get(\"name\", \"unnamed\"))
+    print(\"|\".join(bad) if bad else \"ok\")
+'" | tr -d '\r\n')
+        if [ "$cron_field_check" = "no-cron" ]; then
+            skip "Cron delivery field: no jobs.json found"
+        elif [ "$cron_field_check" = "ok" ]; then
+            pass "Cron delivery: all jobs use canonical 'to' field"
+        else
+            fail "Cron delivery: jobs using 'target' instead of 'to': $(echo "$cron_field_check" | tr '|' ', ')"
+        fi
+    else
+        skip "Cron delivery field: no container access"
     fi
 }

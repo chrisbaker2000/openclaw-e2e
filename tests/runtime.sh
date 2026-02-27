@@ -4,7 +4,7 @@
 test_runtime() {
     should_run "runtime" || return 0
     has_container_access || return 0
-    section "Container Runtime (5 tests)"
+    section "Container Runtime (7 tests)"
 
     # 1. Node.js version >= 22
     local node_ver
@@ -90,5 +90,70 @@ print(pids if pids else 'unset')
         fi
     else
         skip "PID limit: inspect data not available"
+    fi
+
+    # 6. Container uptime (< 60s may indicate crash-loop)
+    if [ -n "$GATEWAY_INSPECT" ]; then
+        local uptime_secs
+        uptime_secs=$(echo "$GATEWAY_INSPECT" | python3 -c "
+import json, sys
+from datetime import datetime, timezone
+d = json.load(sys.stdin)
+started = d[0].get('State', {}).get('StartedAt', '')
+if not started:
+    print('')
+    sys.exit(0)
+# Parse Docker ISO timestamp
+try:
+    started_dt = datetime.fromisoformat(started.replace('Z', '+00:00'))
+    now = datetime.now(timezone.utc)
+    diff = (now - started_dt).total_seconds()
+    print(int(max(diff, 0)))
+except:
+    print('')
+" 2>/dev/null | tr -d '\r\n')
+        if [ -n "$uptime_secs" ] && [ "$uptime_secs" -ge 0 ] 2>/dev/null; then
+            if [ "$uptime_secs" -ge 60 ]; then
+                local uptime_human
+                if [ "$uptime_secs" -ge 86400 ]; then
+                    uptime_human="$((uptime_secs / 86400))d $((uptime_secs % 86400 / 3600))h"
+                elif [ "$uptime_secs" -ge 3600 ]; then
+                    uptime_human="$((uptime_secs / 3600))h $((uptime_secs % 3600 / 60))m"
+                else
+                    uptime_human="$((uptime_secs / 60))m ${uptime_secs}s"
+                fi
+                pass "Container uptime: $uptime_human"
+            else
+                fail "Container uptime: ${uptime_secs}s (< 60s — possible crash-loop)"
+            fi
+        else
+            skip "Container uptime: could not parse StartedAt"
+        fi
+    else
+        skip "Container uptime: inspect data not available"
+    fi
+
+    # 7. Memory limit check (report, warn if below 1 GiB)
+    if [ -n "$GATEWAY_INSPECT" ]; then
+        local mem_limit_bytes
+        mem_limit_bytes=$(echo "$GATEWAY_INSPECT" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+mem = d[0].get('HostConfig', {}).get('Memory', 0)
+print(mem)
+" 2>/dev/null | tr -d '\r\n')
+        if [ "${mem_limit_bytes:-0}" = "0" ]; then
+            pass "Memory limit: unlimited (no cap set)"
+        elif [ "$mem_limit_bytes" -ge 1073741824 ] 2>/dev/null; then
+            local mem_mb=$((mem_limit_bytes / 1048576))
+            pass "Memory limit: ${mem_mb}MB"
+        elif [ "$mem_limit_bytes" -gt 0 ] 2>/dev/null; then
+            local mem_mb=$((mem_limit_bytes / 1048576))
+            fail "Memory limit: ${mem_mb}MB (< 1 GiB — docs recommend at least 1g)"
+        else
+            skip "Memory limit: could not read from inspect"
+        fi
+    else
+        skip "Memory limit: inspect data not available"
     fi
 }
