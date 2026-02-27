@@ -6,13 +6,18 @@ test_environment() {
     has_container_access || return 0
     section "Gateway Environment (11 tests)"
 
-    # 1. Gateway token set
-    local has_token
-    has_token=$(container_exec "printenv OPENCLAW_GATEWAY_TOKEN >/dev/null 2>&1 && echo yes || echo no")
-    if [ "$has_token" = "yes" ]; then
-        pass "Gateway token: set"
+    # 1. Gateway token NOT set as env var (config is single source of truth — prevents drift)
+    if [ "$OPENCLAW_NATIVE" = "true" ]; then
+        # In native mode we can't inspect the gateway process's env from outside
+        skip "Gateway token env check: not applicable in native mode"
     else
-        fail "Gateway token: OPENCLAW_GATEWAY_TOKEN not set"
+        local has_token
+        has_token=$(container_exec "printenv OPENCLAW_GATEWAY_TOKEN >/dev/null 2>&1 && echo yes || echo no")
+        if [ "$has_token" = "no" ]; then
+            pass "Gateway token: env var not set (config is single source of truth)"
+        else
+            fail "Gateway token: OPENCLAW_GATEWAY_TOKEN env var set — remove to prevent token drift"
+        fi
     fi
 
     # 2. No uncaught exceptions or fatal errors
@@ -67,7 +72,7 @@ test_environment() {
     pending_count=$(container_exec "python3 -c '
 import json
 try:
-    with open(\"/home/node/.openclaw/devices/pending.json\") as f:
+    with open(\"$_PROC_CONFIG_DIR/devices/pending.json\") as f:
         d = json.load(f)
     print(len(d))
 except:
@@ -83,7 +88,7 @@ except:
     local workspace_artifacts
     workspace_artifacts=$(container_exec "python3 -c '
 import os
-ws = \"/home/node/.openclaw/workspace\"
+ws = \"$_PROC_CONFIG_DIR/workspace\"
 artifacts = [f for f in [\"src\",\"node_modules\",\"package.json\",\"pnpm-lock.yaml\",\"tsconfig.json\"] if os.path.exists(os.path.join(ws, f))]
 print(\" \".join(artifacts) if artifacts else \"none\")
 '" | tr -d '\r')
@@ -129,9 +134,9 @@ print('|'.join(findings) if findings else 'ok')
     perm_check=$(container_exec "python3 -c '
 import os, stat
 issues = []
-config_path = \"/home/node/.openclaw/openclaw.json\"
-config_dir = \"/home/node/.openclaw\"
-creds_dir = \"/home/node/.openclaw/credentials\"
+config_path = \"$_PROC_CONFIG_DIR/openclaw.json\"
+config_dir = \"$_PROC_CONFIG_DIR\"
+creds_dir = \"$_PROC_CONFIG_DIR/credentials\"
 
 # Config file should be 600 or more restrictive
 if os.path.exists(config_path):
@@ -155,6 +160,9 @@ print(\"|\".join(issues) if issues else \"ok\")
 '" | tr -d '\r')
     if [ "$perm_check" = "ok" ]; then
         pass "Config file permissions: secure"
+    elif [ "$OPENCLAW_NATIVE" = "true" ]; then
+        # Native mode: bad permissions are a real security concern
+        fail "Config permissions: $(echo "$perm_check" | tr '|' ', ')"
     else
         # Docker volume mounts may have different permissions; warn but don't fail
         pass "Config permissions: $(echo "$perm_check" | tr '|' ', ') (volume mount — may differ)"

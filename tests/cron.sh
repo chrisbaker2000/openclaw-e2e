@@ -7,7 +7,7 @@ test_cron() {
     section "Cron Delivery Health (13 tests)"
 
     local cron_data
-    cron_data=$(container_exec "cat /home/node/.openclaw/cron/jobs.json") || cron_data=""
+    cron_data=$(container_exec "cat $_PROC_CONFIG_DIR/cron/jobs.json") || cron_data=""
 
     if [ -z "$cron_data" ]; then
         skip "Cron jobs: not readable from container"

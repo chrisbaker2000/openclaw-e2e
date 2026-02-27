@@ -19,7 +19,7 @@ test_config() {
 
     # 1. Shared config has required top-level sections
     local shared_config
-    shared_config=$(container_exec "cat /home/node/.openclaw/workspace/shared-config.json") || shared_config=""
+    shared_config=$(container_exec "cat $_PROC_CONFIG_DIR/workspace/shared-config.json") || shared_config=""
     if [ -n "$shared_config" ]; then
         local missing_sections
         missing_sections=$(echo "$shared_config" | python3 -c "
@@ -505,7 +505,7 @@ else:
         local cron_field_check
         cron_field_check=$(container_exec "python3 -c '
 import json, os
-path = \"/home/node/.openclaw/cron/jobs.json\"
+path = \"$_PROC_CONFIG_DIR/cron/jobs.json\"
 if not os.path.exists(path):
     print(\"no-cron\")
 else:

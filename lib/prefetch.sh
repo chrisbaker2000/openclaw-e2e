@@ -20,6 +20,10 @@ prefetch() {
         return 0
     fi
 
+    if [ "$OPENCLAW_NATIVE" = "true" ]; then
+        echo -e "${DIM}Native mode — reading config and logs from disk${NC}"
+    fi
+
     # Fetch recent logs, then filter to only the current startup using timestamps.
     # Docker logs interleaves stdout/stderr out of chronological order, so
     # line-number filtering doesn't work. Instead, find the timestamp of the
@@ -50,13 +54,17 @@ for line in lines:
         print(line)
 " 2>/dev/null) || GATEWAY_LOGS="$raw_logs"
 
-    GATEWAY_CONFIG=$(container_exec "cat /home/node/.openclaw/openclaw.json") || GATEWAY_CONFIG=""
+    GATEWAY_CONFIG=$(container_exec "cat $_PROC_CONFIG_DIR/openclaw.json") || GATEWAY_CONFIG=""
     GATEWAY_INSPECT=$(container_inspect) || GATEWAY_INSPECT=""
     GATEWAY_STATS=$(container_stats) || GATEWAY_STATS=""
 
-    if [ -z "$GATEWAY_LOGS" ] && [ -z "$GATEWAY_INSPECT" ]; then
-        echo -e "${RED}ERROR: Cannot reach gateway container.${NC}"
-        echo -e "${DIM}Check your .env: OPENCLAW_SSH_HOST, OPENCLAW_DOCKER_BIN, OPENCLAW_CONTAINER${NC}"
+    if [ -z "$GATEWAY_LOGS" ] && [ -z "$GATEWAY_INSPECT" ] && [ -z "$GATEWAY_CONFIG" ]; then
+        echo -e "${RED}ERROR: Cannot reach gateway.${NC}"
+        if [ "$OPENCLAW_NATIVE" = "true" ]; then
+            echo -e "${DIM}Check OPENCLAW_MAC_CONFIG_DIR ($OPENCLAW_MAC_CONFIG_DIR) and that the gateway is running${NC}"
+        else
+            echo -e "${DIM}Check your .env: OPENCLAW_SSH_HOST, OPENCLAW_DOCKER_BIN, OPENCLAW_CONTAINER${NC}"
+        fi
         exit 1
     fi
 }
