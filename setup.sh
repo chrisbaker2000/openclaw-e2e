@@ -120,10 +120,14 @@ if [ -n "$DOCKER_BIN" ]; then
 import sys, json
 try:
     cfg = json.load(sys.stdin)
-    plugins = cfg.get('plugins', {})
-    for name, pcfg in plugins.items():
+    # Check plugins.entries (current format) and plugins (legacy format)
+    entries = cfg.get('plugins', {}).get('entries', cfg.get('plugins', {}))
+    for name, pcfg in entries.items():
         if 'memory' in name.lower():
-            url = pcfg.get('settings', {}).get('apiUrl', '')
+            # Try all known config paths
+            url = (pcfg.get('config', {}).get('serverUrl', '') or
+                   pcfg.get('settings', {}).get('apiUrl', '') or
+                   pcfg.get('settings', {}).get('serverUrl', ''))
             if url: print(url); break
 except: pass
 " 2>/dev/null || true)
@@ -134,9 +138,11 @@ except: pass
 import sys, json
 try:
     cfg = json.load(sys.stdin)
-    for name, pcfg in cfg.get('plugins', {}).items():
+    entries = cfg.get('plugins', {}).get('entries', cfg.get('plugins', {}))
+    for name, pcfg in entries.items():
         if 'memory' in name.lower():
-            ns = pcfg.get('settings', {}).get('namespace', 'default')
+            ns = (pcfg.get('config', {}).get('namespace', '') or
+                  pcfg.get('settings', {}).get('namespace', 'default'))
             print(ns); break
 except: print('default')
 " 2>/dev/null || echo "default")
@@ -154,7 +160,8 @@ if [ -n "$DOCKER_BIN" ] && [ -n "${GW_CONFIG:-}" ]; then
 import sys, json
 try:
     cfg = json.load(sys.stdin)
-    if cfg.get('slack', {}).get('appToken') or cfg.get('slack', {}).get('botToken'):
+    slack = cfg.get('channels', {}).get('slack', cfg.get('slack', {}))
+    if slack.get('appToken') or slack.get('botToken'):
         print('true')
 except: pass
 " 2>/dev/null || true)
@@ -162,7 +169,8 @@ except: pass
 import sys, json
 try:
     cfg = json.load(sys.stdin)
-    if cfg.get('discord', {}).get('token'):
+    discord = cfg.get('channels', {}).get('discord', cfg.get('discord', {}))
+    if discord.get('token'):
         print('true')
 except: pass
 " 2>/dev/null || true)
