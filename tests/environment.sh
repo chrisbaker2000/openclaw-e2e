@@ -4,7 +4,7 @@
 test_environment() {
     should_run "environment" || return 0
     has_container_access || return 0
-    section "Gateway Environment (9 tests)"
+    section "Gateway Environment (11 tests)"
 
     # 1. Gateway token set
     local has_token
@@ -174,5 +174,41 @@ print(\"|\".join(issues) if issues else \"ok\")
         fi
     else
         skip "Unrecognized config keys: logs not available"
+    fi
+
+    # 10. No plaintext WebSocket security errors
+    #     Upstream enforces CWE-319: ws:// to non-loopback is blocked.
+    #     This catches misconfigurations where bind: "lan" + ws:// would fail.
+    if [ -n "$GATEWAY_LOGS" ]; then
+        local ws_security
+        ws_security=$(echo "$GATEWAY_LOGS" | grep -ai "isSecureWebSocketUrl\|CWE-319\|insecure.*websocket\|ws://.*rejected\|plaintext.*websocket" | \
+            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        ws_security=$(echo "$ws_security" | tr -d ' \n')
+        if [ "${ws_security:-0}" = "0" ]; then
+            pass "No plaintext WebSocket security errors"
+        else
+            fail "WebSocket security errors: $ws_security (check bind/TLS config)"
+            echo "$GATEWAY_LOGS" | grep -ai "isSecureWebSocketUrl\|CWE-319\|insecure.*websocket" | head -3 | sed 's/^/    /'
+        fi
+    else
+        skip "WebSocket security: logs not available"
+    fi
+
+    # 11. No node security violations in logs
+    #     Catches permission denials, sandbox escapes, or exec security blocks.
+    if [ -n "$GATEWAY_LOGS" ]; then
+        local sec_violations
+        sec_violations=$(echo "$GATEWAY_LOGS" | grep -ai "SECURITY ERROR\|security violation\|permission denied.*exec\|sandbox.*escape\|exec.*blocked" | \
+            grep -v -i "expected\|test" | \
+            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        sec_violations=$(echo "$sec_violations" | tr -d ' \n')
+        if [ "${sec_violations:-0}" = "0" ]; then
+            pass "No node security violations"
+        else
+            fail "Security violations: $sec_violations"
+            echo "$GATEWAY_LOGS" | grep -ai "SECURITY ERROR\|security violation\|permission denied.*exec" | head -3 | sed 's/^/    /'
+        fi
+    else
+        skip "Security violations: logs not available"
     fi
 }

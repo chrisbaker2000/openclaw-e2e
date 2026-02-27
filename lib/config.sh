@@ -51,6 +51,12 @@ OPENCLAW_MAX_GATEWAY_HTTP_MS="${OPENCLAW_MAX_GATEWAY_HTTP_MS:-2000}"
 OPENCLAW_MAX_HEALTH_MS="${OPENCLAW_MAX_HEALTH_MS:-1000}"
 OPENCLAW_MAX_SKILLS_MS="${OPENCLAW_MAX_SKILLS_MS:-3000}"
 
+# ─── Context optimization thresholds ─────────────────────────────
+OPENCLAW_MAX_WORKSPACE_MD_FILES="${OPENCLAW_MAX_WORKSPACE_MD_FILES:-10}"
+OPENCLAW_MAX_WORKSPACE_MD_BYTES="${OPENCLAW_MAX_WORKSPACE_MD_BYTES:-8000}"
+OPENCLAW_MAX_BOOTSTRAP_TOKENS="${OPENCLAW_MAX_BOOTSTRAP_TOKENS:-2000}"
+OPENCLAW_FRAMEWORK_MD_FILES="${OPENCLAW_FRAMEWORK_MD_FILES:-AGENTS.md,CLAUDE.md,SOUL.md,TOOLS.md,IDENTITY.md,USER.md,HEARTBEAT.md,MEMORY.md}"
+
 # ─── CLI args (override .env) ─────────────────────────────────────
 SECTION_FILTER=""
 
@@ -73,8 +79,8 @@ parse_args() {
                 echo "  --help                 Show this help"
                 echo ""
                 echo "Sections: core, config, cron, plugins, memory, channels,"
-                echo "          runtime, environment, latency, custom-provider"
-                echo "          + any tests/local/*.sh modules"
+                echo "          runtime, environment, context, latency,"
+                echo "          custom-provider + any tests/local/*.sh modules"
                 echo ""
                 echo "Configuration: create a .env file (see .env.example)"
                 exit 0

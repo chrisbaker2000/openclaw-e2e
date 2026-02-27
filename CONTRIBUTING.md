@@ -24,6 +24,7 @@ Each test module in `tests/` covers a specific domain:
 | `channels.sh` | Slack/Discord connectivity | Explicitly enabled |
 | `runtime.sh` | Container runtime checks | Container access |
 | `environment.sh` | Env vars, log scanning | Container access |
+| `context.sh` | Workspace .md budgets, bloat detection | Container access |
 | `latency.sh` | Performance benchmarks | Gateway URL |
 | `custom-provider.sh` | Custom provider endpoints | Provider config |
 

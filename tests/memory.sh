@@ -8,7 +8,7 @@ test_memory() {
         return 0
     fi
 
-    section "Memory Server (15 tests)"
+    section "Memory Server (21 tests)"
 
     local MEMORY_SERVER="$OPENCLAW_MEMORY_SERVER_URL"
     local NAMESPACE="$OPENCLAW_MEMORY_NAMESPACE"
@@ -92,13 +92,13 @@ for m in d.get('memories',[]):
     local store_code
     store_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
         -H "Content-Type: application/json" \
-        -d "{\"memories\": [{\"id\": \"$test_marker\", \"text\": \"$test_text\", \"namespace\": \"$NAMESPACE\", \"topics\": [\"e2e-test\"]}]}" \
+        -d "{\"memories\": [{\"id\": \"$test_marker\", \"text\": \"$test_text\", \"namespace\": \"$NAMESPACE\", \"topics\": [\"e2e-test\"], \"entities\": [\"E2E-Test-Runner\"]}]}" \
         "$MEMORY_SERVER/v1/long-term-memory/" 2>/dev/null)
     if [ "$store_code" = "200" ] || [ "$store_code" = "201" ]; then
         pass "Store: $test_marker ($store_code)"
     else
         fail "Store: HTTP $store_code"
-        for s in "Search" "Get" "Update" "Delete" "Verify deleted"; do
+        for s in "Search" "Get" "Update" "PATCH structured fields" "Search (topic filter)" "Search (entity filter)" "Search (distance)" "Pin (PATCH)" "Delete" "Verify deleted"; do
             skip "$s: skipped (store failed)"
         done
         # Skip remaining CRUD + working memory
@@ -130,7 +130,9 @@ sys.exit(1)
         pass "Search: found ($server_id)"
     else
         fail "Search: test memory not found after 3 attempts"
-        skip "Get: skipped"; skip "Update: skipped"; skip "Delete: skipped"; skip "Verify deleted: skipped"
+        for s in "Get" "Update" "PATCH structured fields" "Search (topic filter)" "Search (entity filter)" "Search (distance)" "Pin (PATCH)" "Delete" "Verify deleted"; do
+            skip "$s: skipped (search failed)"
+        done
         _test_memory_working
         return 0
     fi
@@ -165,7 +167,137 @@ sys.exit(1)
         fail "Update: HTTP $patch_code"
     fi
 
-    # 9. Delete
+    # 9. PATCH structured fields (topics, entities, memory_type, event_date)
+    #    Catches server bugs like the 0.13.2 topic pipe-joining issue.
+    local enrich_code
+    enrich_code=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
+        -H "Content-Type: application/json" \
+        -d '{"topics": ["e2e-test", "health:test"], "entities": ["E2E-Runner"], "memory_type": "episodic", "event_date": "2026-02-24"}' \
+        "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
+    if [ "$enrich_code" = "200" ]; then
+        local verify_fields
+        verify_fields=$(curl -s "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+raw_topics = d.get('topics') or []
+topics_str = '|'.join(raw_topics) if raw_topics else ''
+topics_ok = 'health:test' in topics_str
+entities_ok = 'E2E-Runner' in (d.get('entities') or [])
+type_ok = d.get('memory_type') == 'episodic'
+raw_date = d.get('event_date') or ''
+date_ok = raw_date.startswith('2026-02-24')
+print('yes' if all([topics_ok, entities_ok, type_ok, date_ok]) else f'no (topics:{topics_ok}, entities:{entities_ok}, type:{type_ok}, date:{date_ok})')
+" 2>/dev/null)
+        if [ "$verify_fields" = "yes" ]; then
+            pass "PATCH structured fields: round-trip verified"
+        else
+            fail "PATCH structured fields: not persisted — $verify_fields"
+        fi
+    else
+        fail "PATCH structured fields: HTTP $enrich_code"
+    fi
+
+    # 10. Search with topic filter
+    #     Known bug: agent-memory-server 0.13.1/0.13.2 returns 500 for topic filters
+    local topic_code topic_found="no"
+    topic_code=$(curl -s -o /tmp/openclaw_topic_resp -w '%{http_code}' -X POST \
+        -H "Content-Type: application/json" \
+        -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"topics\": {\"any\": [\"e2e-test\"]}, \"limit\": 5}" \
+        "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
+    if [ "$topic_code" = "500" ]; then
+        skip "Search (topic filter): server returns 500 (known bug in 0.13.x)"
+    elif [ "$topic_code" = "200" ]; then
+        topic_found=$(cat /tmp/openclaw_topic_resp | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for m in d.get('memories', []):
+    if 'E2E_TEST' in m.get('text', ''):
+        print('yes'); sys.exit(0)
+print('no')
+" 2>/dev/null)
+        if [ "$topic_found" = "yes" ]; then
+            pass "Search (topic filter): found with topics={any:[\"e2e-test\"]}"
+        else
+            fail "Search (topic filter): 200 but test memory not in results"
+        fi
+    else
+        fail "Search (topic filter): HTTP $topic_code"
+    fi
+    rm -f /tmp/openclaw_topic_resp
+
+    # 11. Search with entity filter
+    local entity_code entity_found="no"
+    entity_code=$(curl -s -o /tmp/openclaw_entity_resp -w '%{http_code}' -X POST \
+        -H "Content-Type: application/json" \
+        -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"entities\": {\"any\": [\"E2E-Runner\"]}, \"limit\": 5}" \
+        "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
+    if [ "$entity_code" = "200" ]; then
+        entity_found=$(cat /tmp/openclaw_entity_resp | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for m in d.get('memories', []):
+    if 'E2E_TEST' in m.get('text', ''):
+        print('yes'); sys.exit(0)
+print('no')
+" 2>/dev/null)
+        if [ "$entity_found" = "yes" ]; then
+            pass "Search (entity filter): found with entities={any:[\"E2E-Runner\"]}"
+        else
+            fail "Search (entity filter): 200 but test memory not in results"
+        fi
+    elif [ "$entity_code" = "500" ]; then
+        skip "Search (entity filter): server returns 500 (known bug)"
+    else
+        fail "Search (entity filter): HTTP $entity_code"
+    fi
+    rm -f /tmp/openclaw_entity_resp
+
+    # 12. Search distance validation (exact text match should be < 0.5)
+    if [ -n "$search_dist" ] && [ "$search_dist" != "unknown" ]; then
+        local dist_ok
+        dist_ok=$(python3 -c "print('yes' if float('$search_dist') < 0.5 else 'no')" 2>/dev/null)
+        if [ "$dist_ok" = "yes" ]; then
+            pass "Search (distance): $search_dist (< 0.5)"
+        else
+            fail "Search (distance): $search_dist (expected < 0.5 for exact text match)"
+        fi
+    else
+        skip "Search (distance): dist not returned by server"
+    fi
+
+    # 13. Pin test (PATCH pinned=true)
+    #     Known limitation: 0.13.2 does not support PATCH for pinned field (returns 400).
+    local pin_code
+    pin_code=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
+        -H "Content-Type: application/json" \
+        -d '{"pinned": true}' \
+        "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
+    if [ "$pin_code" = "200" ]; then
+        local pin_verify
+        pin_verify=$(curl -s "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | \
+            python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if d.get('pinned') else 'no')" 2>/dev/null)
+        if [ "$pin_verify" = "yes" ]; then
+            pass "Pin (PATCH): pinned=true persists"
+        else
+            fail "Pin (PATCH): not set after PATCH 200"
+        fi
+    elif [ "$pin_code" = "400" ]; then
+        skip "Pin (PATCH): server does not support PATCH for pinned (400)"
+    else
+        fail "Pin (PATCH): HTTP $pin_code"
+    fi
+
+    # 14. Memory server version (informational)
+    local server_version
+    server_version=$(curl -s --connect-timeout 5 "$MEMORY_SERVER/openapi.json" 2>/dev/null | \
+        python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('info',{}).get('version','unknown'))" 2>/dev/null)
+    if [ -n "$server_version" ] && [ "$server_version" != "unknown" ]; then
+        pass "Server version: $server_version"
+    else
+        skip "Server version: could not read from OpenAPI spec"
+    fi
+
+    # 15. Delete
     local del_code
     del_code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
         "$MEMORY_SERVER/v1/long-term-memory?memory_ids=$server_id&namespace=$NAMESPACE" 2>/dev/null)
@@ -175,7 +307,7 @@ sys.exit(1)
         fail "Delete: HTTP $del_code"
     fi
 
-    # 10. Verify deleted
+    # 16. Verify deleted
     sleep 1
     local verify_code
     verify_code=$(curl -s -o /dev/null -w '%{http_code}' \
@@ -199,7 +331,7 @@ _test_memory_working() {
     ts=$(date +%s)
     local test_session="e2e-test-session-${ts}"
 
-    # 11. PUT working memory
+    # 17. PUT working memory
     local put_code
     put_code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
         -H "Content-Type: application/json" \
@@ -222,7 +354,7 @@ _test_memory_working() {
         return 0
     fi
 
-    # 12. GET working memory
+    # 18. GET working memory
     local get_resp get_code get_body
     get_resp=$(curl -s -w '\n%{http_code}' \
         "$MEMORY_SERVER/v1/working-memory/$test_session?namespace=$NAMESPACE&user_id=e2e-test" 2>/dev/null)
@@ -234,7 +366,7 @@ _test_memory_working() {
         fail "Working memory GET: HTTP $get_code"
     fi
 
-    # 13. Verify content round-tripped
+    # 19. Verify content round-tripped
     local content_check
     content_check=$(echo "$get_body" | python3 -c "
 import json, sys
@@ -253,7 +385,7 @@ except:
         fail "Working memory content: $content_check"
     fi
 
-    # 14. List sessions
+    # 20. List sessions
     local list_code
     list_code=$(curl -s -o /dev/null -w '%{http_code}' "$MEMORY_SERVER/v1/working-memory/?namespace=$NAMESPACE&limit=5" 2>/dev/null)
     if [ "$list_code" = "200" ]; then
@@ -262,7 +394,7 @@ except:
         fail "Working memory list: HTTP $list_code"
     fi
 
-    # 15. DELETE working memory
+    # 21. DELETE working memory
     local wm_del_code
     wm_del_code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
         "$MEMORY_SERVER/v1/working-memory/$test_session?namespace=$NAMESPACE&user_id=e2e-test" 2>/dev/null)

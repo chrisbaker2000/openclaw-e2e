@@ -189,5 +189,10 @@
   "memory": {
     "provider_priority": ["local", "openai", "gemini", "voyage"],
     "citation_modes": ["auto", "on", "off"]
+  },
+  "workspace": {
+    "framework_files_default": ["AGENTS.md", "CLAUDE.md", "SOUL.md", "TOOLS.md", "IDENTITY.md", "USER.md", "HEARTBEAT.md", "MEMORY.md"],
+    "bloat_indicators": ["README.md", "BOOTSTRAP.md"],
+    "artifact_indicators": ["src", "node_modules", "package.json", "pnpm-lock.yaml", "tsconfig.json"]
   }
 }

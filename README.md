@@ -2,7 +2,7 @@
 
 Post-update end-to-end tests for [OpenClaw](https://openclaw.ai) gateway deployments. Catches regressions after updates, config changes, or infrastructure modifications.
 
-**~95 tests across 10 categories** — runs in under 2 minutes. Zero dependencies beyond `bash`, `curl`, and `python3`. All validations grounded in the [official OpenClaw docs](https://docs.openclaw.ai).
+**~117 tests across 11 categories** — runs in under 2 minutes. Zero dependencies beyond `bash`, `curl`, and `python3`. All validations grounded in the [official OpenClaw docs](https://docs.openclaw.ai).
 
 ## Quick Start
 
@@ -26,14 +26,15 @@ cp .env.example .env
 | Section | Tests | Requires |
 |---------|-------|----------|
 | **Core** (7) | Gateway health, HTTP, version, CPU, memory, PIDs | Gateway URL |
-| **Config** (20) | Schema compliance, model format, providers, auth/bind/reload modes, session reset, message queue/typing/delay modes, tailscale, funnel cross-check, logging, thinking levels, tool visibility | Container access |
+| **Config** (22) | Schema compliance, model format, providers, auth/bind/reload modes, session reset/maintenance, message queue/typing/delay modes, tailscale, funnel cross-check, logging, thinking levels, tool visibility, cron delivery field | Container access |
 | **Cron** (13) | Delivery fields, channels, modes, schedules, session targets, thinking levels, wake modes | Container access |
 | **Plugins** (5) | Registration, manifests, configSchema validity | Container access |
-| **Memory** (15) | Health, CRUD round-trip, working memory | Memory server URL |
+| **Memory** (21) | Health, CRUD round-trip, structured field PATCH, topic/entity filter search, distance validation, pin support, server version, working memory | Memory server URL |
 | **Channels** (11) | Slack/Discord connectivity, dmPolicy, groupPolicy, mode, streamMode, replyToMode | Explicitly enabled |
-| **Runtime** (5) | Node.js version, container stability, volumes, user/uid, PID limits | Container access |
-| **Environment** (9) | Env vars, error scanning, workspace health, dangerous flags, file permissions, unrecognized keys | Container access |
-| **Latency** (3) | Gateway HTTP, memory health/search benchmarks | Gateway + memory |
+| **Runtime** (7) | Node.js version, container stability, volumes, user/uid, PID limits, uptime, memory limit | Container access |
+| **Environment** (11) | Env vars, error scanning, workspace health, dangerous flags, file permissions, unrecognized keys, WebSocket security, node security violations | Container access |
+| **Context** (8) | Workspace .md count/size, README/BOOTSTRAP bloat, stale doc detection, bootstrap token estimation, humanDelay, context headroom | Container access |
+| **Latency** (5) | Gateway HTTP, memory health/search, skills compilation, gateway startup time | Gateway + memory |
 | **Custom Provider** (N) | Endpoint reachability, per-model validation | Provider config |
 
 Tests **skip** (not fail) when their feature isn't configured. Start with just a gateway URL and add more config as needed.
@@ -92,6 +93,11 @@ OPENCLAW_CUSTOM_PROVIDER_MODELS="claude-opus-4-6,claude-sonnet-4-6"
 OPENCLAW_MAX_GATEWAY_HTTP_MS=2000
 OPENCLAW_MAX_MEMORY_SEARCH_MS=3000
 OPENCLAW_MAX_HEALTH_MS=1000
+
+# Context optimization thresholds (workspace .md file budgets)
+OPENCLAW_MAX_WORKSPACE_MD_FILES=10
+OPENCLAW_MAX_WORKSPACE_MD_BYTES=8000
+OPENCLAW_MAX_BOOTSTRAP_TOKENS=2000
 ```
 
 See [`.env.example`](.env.example) for the full list with documentation, or check [`examples/`](examples/) for deployment-specific templates.
@@ -112,7 +118,7 @@ See [`.env.example`](.env.example) for the full list with documentation, or chec
 ./openclaw-test.sh --gateway-url http://10.0.0.5:18789
 ```
 
-Available sections: `core`, `config`, `cron`, `plugins`, `memory`, `channels`, `runtime`, `environment`, `latency`, `custom-provider`
+Available sections: `core`, `config`, `cron`, `plugins`, `memory`, `channels`, `runtime`, `environment`, `context`, `latency`, `custom-provider`
 
 ## Deployment Examples
 
