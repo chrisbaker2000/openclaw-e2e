@@ -1,5 +1,7 @@
 # OpenClaw E2E Test Suite
 
+> **Note**: The homelab gateway runs **natively on the Mac Mini M4 Pro** (not in Docker). For homelab testing, use the local test suite at `~/.openclaw/bin/openclaw-test.sh` (200+ tests). This E2E suite is designed for testing Docker-based or remote gateway deployments.
+
 Post-update end-to-end tests for [OpenClaw](https://openclaw.ai) gateway deployments. Catches regressions after updates, config changes, or infrastructure modifications.
 
 **~117 tests across 11 categories** — runs in under 2 minutes. Zero dependencies beyond `bash`, `curl`, and `python3`.
