@@ -1,6 +1,6 @@
 # tests/custom-provider.sh — Custom Provider Endpoint Tests
 # Runs when OPENCLAW_CUSTOM_PROVIDER_* vars are set.
-# Use this to test Azure Anthropic, AWS Bedrock, or any custom model provider.
+# Use this to test AWS Bedrock or any custom model provider.
 
 test_custom_provider() {
     should_run "custom-provider" || return 0

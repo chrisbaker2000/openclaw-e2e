@@ -123,7 +123,7 @@ Reads config files and logs from disk. Runs ~80 of ~95 tests. Docker-specific te
 | Slack | `OPENCLAW_SLACK_ENABLED=true` | Slack connectivity and policy checks |
 | Discord | `OPENCLAW_DISCORD_ENABLED=true` | Discord connectivity and policy checks |
 | Version pin | `OPENCLAW_EXPECTED_VERSION` | Fails if gateway version doesn't match |
-| Custom provider | `OPENCLAW_CUSTOM_PROVIDER_*` | Tests Azure Anthropic, Bedrock, etc. |
+| Custom provider | `OPENCLAW_CUSTOM_PROVIDER_*` | Tests custom providers (Bedrock, etc.) |
 
 ### Tuning Thresholds
 
