@@ -12,10 +12,13 @@ test_custom_provider() {
     local provider_name="${OPENCLAW_CUSTOM_PROVIDER_NAME:-custom}"
     local models="${OPENCLAW_CUSTOM_PROVIDER_MODELS:-}"
 
-    # Count models to test
+    # Count models to test.
+    # Use printf (adds a trailing newline) so a comma-separated list like
+    # "a,b" counts as 2, not 1 — keeps the advertised header count in sync
+    # with the number of per-model assertions actually run below.
     local model_count=0
     if [ -n "$models" ]; then
-        model_count=$(echo "$models" | tr ',' '\n' | wc -l | tr -d ' ')
+        model_count=$(printf '%s\n' "$models" | tr ',' '\n' | grep -c '[^[:space:]]')
     fi
 
     local test_count=$((model_count + 1))
@@ -37,9 +40,13 @@ test_custom_provider() {
         return 0
     fi
 
-    # Test each model
+    # Test each model.
+    # NOTE: loop runs in the CURRENT shell (process substitution, not a pipe)
+    # so pass()/fail() mutate PASS_COUNT/FAIL_COUNT/FAILURES in lib/output.sh.
+    # A `... | while read` pipeline would run the body in a subshell and the
+    # counts would be lost — a broken/unreachable model would silently pass.
     if [ -n "$models" ]; then
-        echo "$models" | tr ',' '\n' | while read -r model; do
+        while read -r model; do
             model=$(echo "$model" | tr -d ' ')
             [ -z "$model" ] && continue
             local model_code
@@ -56,6 +63,6 @@ test_custom_provider() {
             else
                 fail "$model: HTTP ${model_code:-timeout}"
             fi
-        done
+        done < <(printf '%s\n' "$models" | tr ',' '\n')
     fi
 }
