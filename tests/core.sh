@@ -49,7 +49,9 @@ test_core() {
     # 3. Version
     local version
     if [ "$OPENCLAW_NATIVE" = "true" ]; then
-        version=$(openclaw --version 2>/dev/null | head -1 | sed 's/[^0-9.]//g')
+        # Isolate the semver token (e.g. "2026.6.8" from "OpenClaw 2026.6.8 (844f405)")
+        # rather than stripping all non-numeric chars, which concatenates build-hash digits.
+        version=$(openclaw --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         if [ -z "$version" ] && [ -n "$OPENCLAW_INSTALL_DIR" ]; then
             version=$(node -p "require('$OPENCLAW_INSTALL_DIR/package.json').version" 2>/dev/null)
         fi
