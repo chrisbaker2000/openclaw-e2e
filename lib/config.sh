@@ -48,6 +48,17 @@ OPENCLAW_DEPLOY_DIR="${OPENCLAW_DEPLOY_DIR:-}"
 OPENCLAW_ANTHROPIC_KEY="${OPENCLAW_ANTHROPIC_KEY:-}"
 OPENCLAW_ANTHROPIC_URL="${OPENCLAW_ANTHROPIC_URL:-https://api.anthropic.com/v1/messages}"
 OPENCLAW_MAC_CONFIG_DIR="${OPENCLAW_MAC_CONFIG_DIR:-$HOME/.openclaw}"
+# OTLP collector (SigNoz) — telemetry sink reachability probe in integrations.sh
+OPENCLAW_OTLP_ENDPOINT="${OPENCLAW_OTLP_ENDPOINT:-http://localhost:4318}"
+
+# ─── Expected memory-plugin config (tunable knobs — drive from env) ──────
+# Numeric tuning knobs are routinely adjusted; default to the current
+# deployment values so a legitimate tune doesn't turn memory-deep.sh red.
+OPENCLAW_MEM_RECALL_LIMIT="${OPENCLAW_MEM_RECALL_LIMIT:-15}"
+OPENCLAW_MEM_MIN_SCORE="${OPENCLAW_MEM_MIN_SCORE:-0.3}"
+OPENCLAW_MEM_AUTO_CAPTURE="${OPENCLAW_MEM_AUTO_CAPTURE:-True}"
+OPENCLAW_MEM_AUTO_RECALL="${OPENCLAW_MEM_AUTO_RECALL:-False}"
+OPENCLAW_MEM_EXTRACTION_STRATEGY="${OPENCLAW_MEM_EXTRACTION_STRATEGY:-custom}"
 
 # ─── Latency thresholds (ms) ──────────────────────────────────────
 OPENCLAW_MAX_MEMORY_SEARCH_MS="${OPENCLAW_MAX_MEMORY_SEARCH_MS:-3000}"
