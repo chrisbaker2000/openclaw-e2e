@@ -54,9 +54,13 @@ print(d.get('plugins',{}).get('entries',{}).get('openclaw-redis-agent-memory',{}
 
     # 4. No critical memory errors in logs
     if has_container_access && [ -n "$GATEWAY_LOGS" ]; then
+        # Count matches directly after excluding transient timeouts — a
+        # brittle "HH:MM:SS" re-filter would zero out untimestamped
+        # continuation/stack-trace lines (LAB-271). prefetch.sh already scopes
+        # GATEWAY_LOGS to the current startup window.
         local mem_critical
         mem_critical=$(echo "$GATEWAY_LOGS" | grep -ai "redis-memory.*error\|memory.*failed\|ECONNREFUSED.*memory\|memory.*auth" | \
-            grep -v -i "timeout" | grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+            grep -v -i "timeout" | grep -aic "redis-memory.*error\|memory.*failed\|ECONNREFUSED.*memory\|memory.*auth" 2>/dev/null || true)
         mem_critical=$(echo "$mem_critical" | tr -d ' \n')
         if [ "${mem_critical:-0}" = "0" ]; then
             pass "No critical memory errors in logs"
@@ -199,15 +203,19 @@ print('yes' if all([topics_ok, entities_ok, type_ok, date_ok]) else f'no (topics
 
     # 10. Search with topic filter
     #     Known bug: agent-memory-server 0.13.1/0.13.2 returns 500 for topic filters
-    local topic_code topic_found="no"
-    topic_code=$(curl -s -o /tmp/openclaw_topic_resp -w '%{http_code}' -X POST \
+    #     Capture body+code in one call into shell variables (no fixed /tmp
+    #     path — avoids cross-run clobber / predictable-path issues, LAB-270).
+    local topic_resp topic_code topic_body topic_found="no"
+    topic_resp=$(curl -s -w '\n%{http_code}' -X POST \
         -H "Content-Type: application/json" \
         -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"topics\": {\"any\": [\"e2e-test\"]}, \"limit\": 5}" \
         "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
+    topic_code=$(echo "$topic_resp" | tail -1)
+    topic_body=$(echo "$topic_resp" | sed '$d')
     if [ "$topic_code" = "500" ]; then
         skip "Search (topic filter): server returns 500 (known bug in 0.13.x)"
     elif [ "$topic_code" = "200" ]; then
-        topic_found=$(cat /tmp/openclaw_topic_resp | python3 -c "
+        topic_found=$(echo "$topic_body" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 for m in d.get('memories', []):
@@ -223,16 +231,17 @@ print('no')
     else
         fail "Search (topic filter): HTTP $topic_code"
     fi
-    rm -f /tmp/openclaw_topic_resp
 
     # 11. Search with entity filter
-    local entity_code entity_found="no"
-    entity_code=$(curl -s -o /tmp/openclaw_entity_resp -w '%{http_code}' -X POST \
+    local entity_resp entity_code entity_body entity_found="no"
+    entity_resp=$(curl -s -w '\n%{http_code}' -X POST \
         -H "Content-Type: application/json" \
         -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"entities\": {\"any\": [\"E2E-Runner\"]}, \"limit\": 5}" \
         "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
+    entity_code=$(echo "$entity_resp" | tail -1)
+    entity_body=$(echo "$entity_resp" | sed '$d')
     if [ "$entity_code" = "200" ]; then
-        entity_found=$(cat /tmp/openclaw_entity_resp | python3 -c "
+        entity_found=$(echo "$entity_body" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 for m in d.get('memories', []):
@@ -250,7 +259,6 @@ print('no')
     else
         fail "Search (entity filter): HTTP $entity_code"
     fi
-    rm -f /tmp/openclaw_entity_resp
 
     # 12. Search distance validation (exact text match should be < 0.5)
     if [ -n "$search_dist" ] && [ "$search_dist" != "unknown" ]; then

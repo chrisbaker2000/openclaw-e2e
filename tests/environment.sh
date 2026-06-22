@@ -21,17 +21,22 @@ test_environment() {
     fi
 
     # 2. No uncaught exceptions or fatal errors
+    #    Count matches DIRECTLY. Node writes uncaught exceptions and
+    #    module-not-found crashes as fully untimestamped stderr stack-trace
+    #    blocks, so a secondary `grep -c "HH:MM:SS"` re-filter zeroes them out
+    #    and the test PASSES while the gateway is crash-looping (LAB-271).
+    #    prefetch.sh already trims GATEWAY_LOGS to the current startup window.
     if [ -n "$GATEWAY_LOGS" ]; then
         local fatal_count
-        fatal_count=$(echo "$GATEWAY_LOGS" | grep -ai "uncaught\|unhandled.*rejection\|FATAL\|process\.exit\|segfault\|out of memory" | \
-            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        fatal_count=$(echo "$GATEWAY_LOGS" | \
+            grep -aic "uncaught\|unhandled.*rejection\|FATAL\|process\.exit\|segfault\|out of memory" 2>/dev/null || true)
         fatal_count=$(echo "$fatal_count" | tr -d ' \n')
         if [ "${fatal_count:-0}" = "0" ]; then
             pass "No uncaught exceptions or fatal errors"
         else
             fail "Fatal errors: $fatal_count occurrences"
             echo "$GATEWAY_LOGS" | grep -ai "uncaught\|unhandled.*rejection\|FATAL" | \
-                grep "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" | head -3 | sed 's/^/    /'
+                head -3 | sed 's/^/    /'
         fi
     else
         skip "Fatal errors: logs not available"
@@ -40,8 +45,8 @@ test_environment() {
     # 3. No config validation warnings
     if [ -n "$GATEWAY_LOGS" ]; then
         local config_warns
-        config_warns=$(echo "$GATEWAY_LOGS" | grep -ai "Invalid config\|must NOT have additional" | \
-            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        config_warns=$(echo "$GATEWAY_LOGS" | \
+            grep -aic "Invalid config\|must NOT have additional" 2>/dev/null || true)
         config_warns=$(echo "$config_warns" | tr -d ' \n')
         if [ "${config_warns:-0}" = "0" ]; then
             pass "No config validation warnings"
@@ -55,8 +60,8 @@ test_environment() {
     # 4. No config include errors
     if [ -n "$GATEWAY_LOGS" ]; then
         local include_errors
-        include_errors=$(echo "$GATEWAY_LOGS" | grep -ai "ConfigIncludeError\|Failed to read include\|ENOENT.*shared-config" | \
-            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        include_errors=$(echo "$GATEWAY_LOGS" | \
+            grep -aic "ConfigIncludeError\|Failed to read include\|ENOENT.*shared-config" 2>/dev/null || true)
         include_errors=$(echo "$include_errors" | tr -d ' \n')
         if [ "${include_errors:-0}" = "0" ]; then
             pass "No config include errors"
@@ -171,8 +176,8 @@ print(\"|\".join(issues) if issues else \"ok\")
     # 9. No unrecognized config key warnings
     if [ -n "$GATEWAY_LOGS" ]; then
         local unrecognized
-        unrecognized=$(echo "$GATEWAY_LOGS" | grep -ai "Unrecognized key\|unknown config" | \
-            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        unrecognized=$(echo "$GATEWAY_LOGS" | \
+            grep -aic "Unrecognized key\|unknown config" 2>/dev/null || true)
         unrecognized=$(echo "$unrecognized" | tr -d ' \n')
         if [ "${unrecognized:-0}" = "0" ]; then
             pass "No unrecognized config keys"
@@ -189,8 +194,8 @@ print(\"|\".join(issues) if issues else \"ok\")
     #     This catches misconfigurations where bind: "lan" + ws:// would fail.
     if [ -n "$GATEWAY_LOGS" ]; then
         local ws_security
-        ws_security=$(echo "$GATEWAY_LOGS" | grep -ai "isSecureWebSocketUrl\|CWE-319\|insecure.*websocket\|ws://.*rejected\|plaintext.*websocket" | \
-            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        ws_security=$(echo "$GATEWAY_LOGS" | \
+            grep -aic "isSecureWebSocketUrl\|CWE-319\|insecure.*websocket\|ws://.*rejected\|plaintext.*websocket" 2>/dev/null || true)
         ws_security=$(echo "$ws_security" | tr -d ' \n')
         if [ "${ws_security:-0}" = "0" ]; then
             pass "No plaintext WebSocket security errors"
@@ -208,7 +213,7 @@ print(\"|\".join(issues) if issues else \"ok\")
         local sec_violations
         sec_violations=$(echo "$GATEWAY_LOGS" | grep -ai "SECURITY ERROR\|security violation\|permission denied.*exec\|sandbox.*escape\|exec.*blocked" | \
             grep -v -i "expected\|test" | \
-            grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+            grep -aic "SECURITY ERROR\|security violation\|permission denied.*exec\|sandbox.*escape\|exec.*blocked" 2>/dev/null || true)
         sec_violations=$(echo "$sec_violations" | tr -d ' \n')
         if [ "${sec_violations:-0}" = "0" ]; then
             pass "No node security violations"

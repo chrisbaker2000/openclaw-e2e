@@ -20,14 +20,17 @@ test_plugins() {
 
     # 2. No schema validation errors
     if [ -n "$GATEWAY_LOGS" ]; then
+        # Count matches directly — a brittle "HH:MM:SS" re-filter would zero
+        # out untimestamped continuation/stack-trace lines (LAB-271).
+        # prefetch.sh already scopes GATEWAY_LOGS to the current startup window.
         local schema_errors
-        schema_errors=$(echo "$GATEWAY_LOGS" | grep -a "must NOT have additional properties\|additionalProperties" | grep -c "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" 2>/dev/null || true)
+        schema_errors=$(echo "$GATEWAY_LOGS" | grep -aic "must NOT have additional properties\|additionalProperties" 2>/dev/null || true)
         schema_errors=$(echo "$schema_errors" | tr -d ' \n')
         if [ "${schema_errors:-0}" = "0" ]; then
             pass "No schema validation errors"
         else
             fail "Schema validation errors: $schema_errors occurrences"
-            echo "$GATEWAY_LOGS" | grep -a "additional.*properties" | grep "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]" | head -3 | sed 's/^/    /'
+            echo "$GATEWAY_LOGS" | grep -ai "additional.*properties" | head -3 | sed 's/^/    /'
         fi
     else
         skip "Schema validation: logs not available"
