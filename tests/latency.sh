@@ -22,24 +22,34 @@ test_latency() {
         fi
     fi
 
-    # Warmup: ping endpoints to ensure connections are hot
+    # Number of samples per benchmark (median compared to threshold).
+    local samples="${OPENCLAW_LATENCY_SAMPLES:-5}"
+
+    # Warmup: ping endpoints to ensure connections are hot.
+    # Track whether the memory warmup actually succeeded so the "warm" benchmarks
+    # below can skip explicitly instead of silently measuring a cold path.
+    local mem_warmup_ok=false
     if [ -n "$gw_latency_via" ] && has_container_access && [ "$OPENCLAW_NATIVE" != "true" ]; then
         host_exec "curl -sf -o /dev/null 'http://localhost:18789'" 2>/dev/null || true
     elif [ -n "$OPENCLAW_GATEWAY_URL" ]; then
         curl -sf -o /dev/null --connect-timeout 3 "$OPENCLAW_GATEWAY_URL" 2>/dev/null || true
     fi
     if [ "$has_memory" = "true" ]; then
-        python3 -c "
-import urllib.request, json
+        # The warmup exits non-zero (not swallowed) if either probe fails, so a
+        # cold/failed warmup is visible rather than masked by `except: pass`.
+        if python3 -c "
+import urllib.request, json, sys
 try:
     urllib.request.urlopen('$OPENCLAW_MEMORY_SERVER_URL/v1/health', timeout=10).read()
-except: pass
-try:
     data = json.dumps({'text': 'warmup', 'namespace': {'eq': '$OPENCLAW_MEMORY_NAMESPACE'}, 'limit': 1}).encode()
     req = urllib.request.Request('$OPENCLAW_MEMORY_SERVER_URL/v1/long-term-memory/search', data=data, headers={'Content-Type': 'application/json'})
     urllib.request.urlopen(req, timeout=10).read()
-except: pass
-" 2>/dev/null
+except Exception as e:
+    sys.stderr.write('memory warmup failed: %s\n' % e)
+    sys.exit(1)
+" 2>/dev/null; then
+            mem_warmup_ok=true
+        fi
     fi
 
     # 1. Gateway HTTP latency
@@ -47,27 +57,32 @@ except: pass
     if [ -n "$OPENCLAW_GATEWAY_URL" ]; then
         local gw_http_ms
         if [ -n "$gw_latency_via" ] && has_container_access; then
-            # Test from Docker host via SSH (measures container responsiveness, not network)
+            # Test from Docker host via SSH (measures container responsiveness, not network).
+            # Median of N samples so a single GC pause / blip doesn't flake the run.
             gw_http_ms=$(host_exec "python3 -c \"
-import urllib.request, urllib.error, time
-start = time.monotonic()
-try:
-    resp = urllib.request.urlopen('$gw_latency_url', timeout=10)
-except urllib.error.HTTPError:
-    pass  # 400/401/etc still means we got a response
-elapsed = (time.monotonic() - start) * 1000
-print(int(elapsed))
+import urllib.request, urllib.error, time, statistics
+samples = []
+for _ in range($samples):
+    start = time.monotonic()
+    try:
+        urllib.request.urlopen('$gw_latency_url', timeout=10)
+    except urllib.error.HTTPError:
+        pass  # 400/401/etc still means we got a response
+    samples.append((time.monotonic() - start) * 1000)
+print(int(statistics.median(samples)))
 \"" 2>/dev/null | tr -d '\r\n')
         else
             gw_http_ms=$(python3 -c "
-import urllib.request, urllib.error, time
-start = time.monotonic()
-try:
-    resp = urllib.request.urlopen('$gw_latency_url', timeout=10)
-except urllib.error.HTTPError:
-    pass  # 400/401/etc still means we got a response
-elapsed = (time.monotonic() - start) * 1000
-print(int(elapsed))
+import urllib.request, urllib.error, time, statistics
+samples = []
+for _ in range($samples):
+    start = time.monotonic()
+    try:
+        urllib.request.urlopen('$gw_latency_url', timeout=10)
+    except urllib.error.HTTPError:
+        pass  # 400/401/etc still means we got a response
+    samples.append((time.monotonic() - start) * 1000)
+print(int(statistics.median(samples)))
 " 2>/dev/null)
         fi
         if [ "${gw_http_ms:-9999}" -le "$OPENCLAW_MAX_GATEWAY_HTTP_MS" ] 2>/dev/null; then
@@ -80,44 +95,52 @@ print(int(elapsed))
     fi
 
     # 2. Memory server health latency
-    if [ "$has_memory" = "true" ]; then
+    if [ "$has_memory" != "true" ]; then
+        skip "Memory health: server URL not set"
+    elif [ "$mem_warmup_ok" != "true" ]; then
+        skip "Memory health: warmup did not succeed (cold path — not measuring)"
+    else
         local mem_health_ms
         mem_health_ms=$(python3 -c "
-import urllib.request, time
-start = time.monotonic()
-resp = urllib.request.urlopen('$OPENCLAW_MEMORY_SERVER_URL/v1/health', timeout=10)
-elapsed = (time.monotonic() - start) * 1000
-print(int(elapsed))
+import urllib.request, time, statistics
+samples = []
+for _ in range($samples):
+    start = time.monotonic()
+    urllib.request.urlopen('$OPENCLAW_MEMORY_SERVER_URL/v1/health', timeout=10)
+    samples.append((time.monotonic() - start) * 1000)
+print(int(statistics.median(samples)))
 " 2>/dev/null)
         if [ "${mem_health_ms:-9999}" -le "$OPENCLAW_MAX_HEALTH_MS" ] 2>/dev/null; then
-            pass "Memory health: ${mem_health_ms}ms (max ${OPENCLAW_MAX_HEALTH_MS}ms)"
+            pass "Memory health: ${mem_health_ms}ms (median of ${samples}, max ${OPENCLAW_MAX_HEALTH_MS}ms)"
         else
-            fail "Memory health: ${mem_health_ms:-timeout}ms (max ${OPENCLAW_MAX_HEALTH_MS}ms)"
+            fail "Memory health: ${mem_health_ms:-timeout}ms (median of ${samples}, max ${OPENCLAW_MAX_HEALTH_MS}ms)"
         fi
-    else
-        skip "Memory health: server URL not set"
     fi
 
     # 3. Memory search latency
-    if [ "$has_memory" = "true" ]; then
+    if [ "$has_memory" != "true" ]; then
+        skip "Memory search: server URL not set"
+    elif [ "$mem_warmup_ok" != "true" ]; then
+        skip "Memory search: warmup did not succeed (cold path — not measuring)"
+    else
         local mem_search_ms
         mem_search_ms=$(python3 -c "
-import urllib.request, json, time
+import urllib.request, json, time, statistics
 url = '$OPENCLAW_MEMORY_SERVER_URL/v1/long-term-memory/search'
 data = json.dumps({'text': 'standing instructions preferences', 'namespace': {'eq': '$OPENCLAW_MEMORY_NAMESPACE'}, 'limit': 5}).encode()
-req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
-start = time.monotonic()
-resp = urllib.request.urlopen(req, timeout=15)
-elapsed = (time.monotonic() - start) * 1000
-print(int(elapsed))
+samples = []
+for _ in range($samples):
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+    start = time.monotonic()
+    urllib.request.urlopen(req, timeout=15)
+    samples.append((time.monotonic() - start) * 1000)
+print(int(statistics.median(samples)))
 " 2>/dev/null)
         if [ "${mem_search_ms:-9999}" -le "$OPENCLAW_MAX_MEMORY_SEARCH_MS" ] 2>/dev/null; then
-            pass "Memory search: ${mem_search_ms}ms (max ${OPENCLAW_MAX_MEMORY_SEARCH_MS}ms)"
+            pass "Memory search: ${mem_search_ms}ms (median of ${samples}, max ${OPENCLAW_MAX_MEMORY_SEARCH_MS}ms)"
         else
-            fail "Memory search: ${mem_search_ms:-timeout}ms (max ${OPENCLAW_MAX_MEMORY_SEARCH_MS}ms)"
+            fail "Memory search: ${mem_search_ms:-timeout}ms (median of ${samples}, max ${OPENCLAW_MAX_MEMORY_SEARCH_MS}ms)"
         fi
-    else
-        skip "Memory search: server URL not set"
     fi
 
     # 4. Skills compilation time (parsed from gateway logs)

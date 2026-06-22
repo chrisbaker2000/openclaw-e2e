@@ -65,6 +65,9 @@ OPENCLAW_MAX_MEMORY_SEARCH_MS="${OPENCLAW_MAX_MEMORY_SEARCH_MS:-3000}"
 OPENCLAW_MAX_GATEWAY_HTTP_MS="${OPENCLAW_MAX_GATEWAY_HTTP_MS:-2000}"
 OPENCLAW_MAX_HEALTH_MS="${OPENCLAW_MAX_HEALTH_MS:-1000}"
 OPENCLAW_MAX_SKILLS_MS="${OPENCLAW_MAX_SKILLS_MS:-3000}"
+# Number of samples taken per latency benchmark; the median is compared to the
+# threshold so a single GC pause / cold cache / transient blip can't flake a run.
+OPENCLAW_LATENCY_SAMPLES="${OPENCLAW_LATENCY_SAMPLES:-5}"
 
 # ─── Context optimization thresholds ─────────────────────────────
 OPENCLAW_MAX_WORKSPACE_MD_FILES="${OPENCLAW_MAX_WORKSPACE_MD_FILES:-10}"
