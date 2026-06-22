@@ -384,7 +384,7 @@ try:
     has_user = any('E2E test' in m.get('content','') for m in msgs if m.get('role') == 'user')
     has_asst = any('E2E response' in m.get('content','') for m in msgs if m.get('role') == 'assistant')
     print('ok' if has_user and has_asst else 'content missing')
-except:
+except Exception:
     print('parse error')
 " 2>/dev/null)
     if [ "$content_check" = "ok" ]; then
