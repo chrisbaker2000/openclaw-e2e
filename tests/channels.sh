@@ -1,6 +1,34 @@
 # tests/channels.sh — Channel Connectivity & Config (Slack, Discord)
 # Runs when OPENCLAW_SLACK_ENABLED or OPENCLAW_DISCORD_ENABLED is true.
 
+# Channel-credential presence helper: reads the bot credential for a channel
+# out of the gateway config JSON (on stdin) and prints "yes"/"no". Keeps the
+# raw credential out of the calling shell scope.
+_channel_has_cred() {
+    local channel="$1"
+    python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+c = d.get('channels', {}).get('$channel', d.get('$channel', {}))
+print('yes' if c.get('botToken') or c.get('token') else 'no')
+" 2>/dev/null
+}
+
+# Live liveness probes. Delegate to lib/channel-liveness.py, which reads the
+# gateway config JSON on stdin, extracts the channel's bot credential, and
+# performs a single bounded identity call (Slack auth.test / Discord
+# /users/@me) — the credential stays inside that script and is never echoed
+# into the test shell. Returns: "ok" (alive), "bad" (rejected), or ""
+# (undetermined — no credential / network / timeout; caller falls back to logs).
+# Same approach as the Slack auth.test in tests/local/integrations.sh.
+_slack_liveness() {
+    python3 "$SCRIPT_DIR/lib/channel-liveness.py" slack 2>/dev/null
+}
+
+_discord_liveness() {
+    python3 "$SCRIPT_DIR/lib/channel-liveness.py" discord 2>/dev/null
+}
+
 test_channels() {
     should_run "channels" || return 0
     has_container_access || return 0
@@ -24,23 +52,25 @@ test_channels() {
 
     # ─── Slack ─────────────────────────────────────────────────────
     if [ "$slack_enabled" = "true" ]; then
-        # 1. Socket mode connected (check logs, fall back to config)
-        if echo "$GATEWAY_LOGS" | grep -qi "socket mode connected\|slack.*connected\|bolt.*connected"; then
-            pass "Slack: socket mode connected"
+        # 1. Slack connected — PRIMARY signal is a live Slack auth.test (proves
+        #    the credential is valid and Slack is reachable RIGHT NOW, not just
+        #    that a connect line once appeared in a log buffer prefetch trims to
+        #    the last startup window). Order: live auth.test → recent connect log
+        #    → credential-present "configured" (an explicitly weaker assertion,
+        #    NOT "connected"). The probe is network-gated and degrades to "".
+        local slack_live slack_cfg
+        slack_live=$(echo "$GATEWAY_CONFIG" | _slack_liveness)
+        slack_cfg=$(echo "$GATEWAY_CONFIG" | _channel_has_cred slack)
+        if [ "$slack_live" = "ok" ]; then
+            pass "Slack: connected (live auth.test ok)"
+        elif [ "$slack_live" = "bad" ]; then
+            fail "Slack: auth.test failed — credential invalid or revoked"
+        elif echo "$GATEWAY_LOGS" | grep -qi "socket mode connected\|slack.*connected\|bolt.*connected"; then
+            pass "Slack: connected (socket mode log)"
+        elif [ "$slack_cfg" = "yes" ]; then
+            pass "Slack: configured (credential present; liveness unconfirmed)"
         else
-            # Startup logs may have scrolled past — check config as evidence
-            local slack_has_token
-            slack_has_token=$(echo "$GATEWAY_CONFIG" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-slack = d.get('channels', {}).get('slack', d.get('slack', {}))
-print('yes' if slack.get('botToken') or slack.get('token') else 'no')
-" 2>/dev/null)
-            if [ "$slack_has_token" = "yes" ]; then
-                pass "Slack: configured (startup logs scrolled past)"
-            else
-                fail "Slack: not connected or configured"
-            fi
+            fail "Slack: not connected or configured"
         fi
 
         # 2. No Slack auth errors
@@ -149,22 +179,24 @@ else:
 
     # ─── Discord ───────────────────────────────────────────────────
     if [ "$discord_enabled" = "true" ]; then
-        # 1. Discord logged in (check logs, fall back to config)
-        if echo "$GATEWAY_LOGS" | grep -qi "logged in.*discord\|discord.*ready\|discord.*connected"; then
-            pass "Discord: logged in"
+        # 1. Discord connected — PRIMARY signal is a live GET /users/@me with
+        #    the bot credential (proves the credential is valid and Discord is
+        #    reachable now). Order: live /users/@me → recent ready/connected log
+        #    → credential-present "configured" (explicitly weaker, NOT
+        #    "connected"). The probe is network-gated and degrades to "".
+        local discord_live discord_cfg
+        discord_live=$(echo "$GATEWAY_CONFIG" | _discord_liveness)
+        discord_cfg=$(echo "$GATEWAY_CONFIG" | _channel_has_cred discord)
+        if [ "$discord_live" = "ok" ]; then
+            pass "Discord: connected (live /users/@me ok)"
+        elif [ "$discord_live" = "bad" ]; then
+            fail "Discord: /users/@me failed — credential invalid or revoked"
+        elif echo "$GATEWAY_LOGS" | grep -qi "logged in.*discord\|discord.*ready\|discord.*connected"; then
+            pass "Discord: connected (ready log)"
+        elif [ "$discord_cfg" = "yes" ]; then
+            pass "Discord: configured (credential present; liveness unconfirmed)"
         else
-            local discord_has_token
-            discord_has_token=$(echo "$GATEWAY_CONFIG" | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-discord = d.get('channels', {}).get('discord', d.get('discord', {}))
-print('yes' if discord.get('token') or discord.get('botToken') else 'no')
-" 2>/dev/null)
-            if [ "$discord_has_token" = "yes" ]; then
-                pass "Discord: configured (startup logs scrolled past)"
-            else
-                fail "Discord: not connected or configured"
-            fi
+            fail "Discord: not connected or configured"
         fi
 
         # 2. Discord dmPolicy valid (per docs: pairing, allowlist, open, disabled)
