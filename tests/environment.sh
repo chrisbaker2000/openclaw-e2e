@@ -80,7 +80,7 @@ try:
     with open(\"$_PROC_CONFIG_DIR/devices/pending.json\") as f:
         d = json.load(f)
     print(len(d))
-except:
+except Exception:
     print(0)
 '" | tr -d ' \n\r')
     if [ "${pending_count:-0}" = "0" ]; then

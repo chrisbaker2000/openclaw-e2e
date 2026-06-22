@@ -164,7 +164,7 @@ try:
                    pcfg.get('settings', {}).get('apiUrl', '') or
                    pcfg.get('settings', {}).get('serverUrl', ''))
             if url: print(url); break
-except: pass
+except Exception: pass
 " 2>/dev/null || true)
 
     if [ -n "$MEMORY_URL" ]; then
@@ -179,7 +179,7 @@ try:
             ns = (pcfg.get('config', {}).get('namespace', '') or
                   pcfg.get('settings', {}).get('namespace', 'default'))
             print(ns); break
-except: print('default')
+except Exception: print('default')
 " 2>/dev/null || echo "default")
     fi
 fi
@@ -197,7 +197,7 @@ try:
     slack = cfg.get('channels', {}).get('slack', cfg.get('slack', {}))
     if slack.get('appToken') or slack.get('botToken'):
         print('true')
-except: pass
+except Exception: pass
 " 2>/dev/null || true)
     HAS_DISCORD=$(echo "$GW_CONFIG" | python3 -c "
 import sys, json
@@ -206,7 +206,7 @@ try:
     discord = cfg.get('channels', {}).get('discord', cfg.get('discord', {}))
     if discord.get('token'):
         print('true')
-except: pass
+except Exception: pass
 " 2>/dev/null || true)
     [ "$HAS_SLACK" = "true" ] && SLACK_ENABLED="true" && echo -e "${GREEN}  Detected Slack channel${NC}"
     [ "$HAS_DISCORD" = "true" ] && DISCORD_ENABLED="true" && echo -e "${GREEN}  Detected Discord channel${NC}"

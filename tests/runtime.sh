@@ -125,7 +125,7 @@ try:
     now = datetime.now(timezone.utc)
     diff = (now - started_dt).total_seconds()
     print(int(max(diff, 0)))
-except:
+except Exception:
     print('')
 " 2>/dev/null | tr -d '\r\n')
         if [ -n "$uptime_secs" ] && [ "$uptime_secs" -ge 0 ] 2>/dev/null; then
