@@ -1,0 +1,474 @@
+name: codex-review
+
+# Optional, parallel Codex-based PR review. Runs alongside Finley's
+# Anthropic Managed Agents (`agent_type: "code"`) Opus reviewer — both
+# reviewers land on the same PR with distinct attribution. Codex output
+# is shaped as a strict JSON document (see
+# `.github/codex/rubric.schema.json`) and rendered to a
+# markdown PR comment with the raw JSON embedded between HTML-comment
+# sentinels for downstream parsing by Claude Code.
+#
+# Cost: at the pinned model (see env.CODEX_REVIEW_MODEL below — gpt-5.5)
+# effort=xhigh, budget ~$0.30–$3.00 per non-trivial PR — the top of the prior
+# medium-effort band (~$0.10–$1.00) shifts up (roughly 2–3× on large diffs)
+# because xhigh spends materially more reasoning tokens + wall-clock for an
+# exhaustive review (FIN-692). This is the deliberate thoroughness lever: Opus
+# routinely caught issues medium-effort Codex missed on the same PR (FIN-691).
+# The job timeout-minutes: 15 should still be ample; watch for timeouts on very
+# large diffs. Re-baseline the per-PR cost from BQ telemetry after a model
+# change (token efficiency differs across models). Monitor BQ telemetry
+# (finding-count delta, BLOCKER FP rate, per-PR token cost) over the
+# FIN-691 validation window.
+# Concurrency-canceled on re-pushes so only the latest head SHA runs.
+#
+# Security posture mirrors ci.yml: zero interpolation of
+# `github.event.*` fields into `run:` shell commands. All untrusted
+# context routed through `env:` blocks. Codex output is written to
+# a temp markdown file and posted via `gh ... --body-file <file>`,
+# so PR-controlled content cannot escape shell quoting. See:
+# https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+#
+# Action pinned to commit SHA for SOC 2 supply-chain immutability —
+# bump SHA + version comment together when upgrading codex-action.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Single source of truth for the Codex review model. Change THIS one value (or
+# set the repo/org Actions variable `CODEX_REVIEW_MODEL` to override every repo
+# at once) to upgrade the model — it drives both the `codex-action` `model:`
+# input AND the rendered `**Model:**` footer in lockstep, so the two can never
+# drift. The `vars.CODEX_REVIEW_MODEL` fallback means: no variable set → the
+# literal default below; variable set → that value wins fleet-wide.
+env:
+  CODEX_REVIEW_MODEL: ${{ vars.CODEX_REVIEW_MODEL || 'gpt-5.5' }}
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Codex review
+    # Skip drafts (Codex tokens are not free), fork PRs (secrets are
+    # not exposed to fork-PR contexts anyway; explicit skip keeps the
+    # failure clean rather than producing a confusing 401), and
+    # bot-authored PRs (Dependabot / Renovate / etc.). The bot skip
+    # mirrors `allow-bots: "false"` on the codex-action step but
+    # short-circuits at the job level so the render step (with
+    # `if: always()`) doesn't post a misleading "Codex did not produce
+    # a review" comment on every bot PR.
+    if: |
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so Codex can `git diff base..head` for the
+          # diff under review and walk caller/callee context.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Don't leave GITHUB_TOKEN in local git config during a job that
+          # processes untrusted PR-controlled content. The Codex sandbox is
+          # read-only and drops sudo, but defense-in-depth.
+          persist-credentials: false
+
+      - name: Run Codex review
+        id: codex
+        # `continue-on-error: true` keeps the action's failure scoped
+        # to this step so the overall job exits green. The fallback
+        # comment in the render step already communicates "Codex did
+        # not produce a review" — but without this, the workflow's CI
+        # check ALSO shows red on the PR, which contradicts the
+        # "non-blocking by design" contract written into the comment
+        # body. The action's true outcome is still readable via
+        # `steps.codex.outcome` (raw) vs `steps.codex.conclusion`
+        # (post-continue-on-error). Caught by Codex's own run-#5 review
+        # of this PR (FIN-269).
+        continue-on-error: true
+        # Release notes: https://github.com/openai/codex-action/releases/tag/v1.8
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        env:
+          # PR metadata Codex consumes at its discretion via shell
+          # commands inside the sandbox. Routing through env: (rather
+          # than interpolating into the prompt) prevents PR-title /
+          # PR-body injection into the action's invocation.
+          REPO_FULL_NAME: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          openai-api-key: ${{ secrets.OPENAI_CODEX_REVIEW_KEY }}
+          # Pin the @openai/codex CLI for determinism + SOC 2 supply-chain
+          # hygiene (the action's default floats the CLI between runs, so the
+          # engine running the review was non-reproducible — FIN-694). 0.139.0
+          # is the current `latest` (stable, non-alpha) dist-tag; 0.140.x is
+          # alpha-only. Verified it defines the `xhigh` reasoning-effort tier
+          # (codex-rs/protocol/src/openai_models.rs `XHigh => "xhigh"` at the
+          # rust-v0.139.0 tag) + --output-schema. 0.139.0 post-dates gpt-5.5's
+          # 2026-04-23 launch, so this CLI recognises the gpt-5.5 model id
+          # (the model id is passed through to the API, not a CLI feature).
+          # A bump is
+          # a SOC 2 change-management event — same discipline as the model +
+          # action-SHA pins; bump deliberately.
+          codex-version: "0.139.0"
+          prompt-file: .github/codex/rubric.md
+          output-schema-file: .github/codex/rubric.schema.json
+          output-file: ${{ runner.temp }}/codex-review.json
+          # `sandbox: read-only` — Codex cannot write to disk or make
+          # network calls. Independent of safety-strategy.
+          sandbox: read-only
+          # `safety-strategy: drop-sudo` — drops sudo from the runner's
+          # default user BEFORE invoking Codex, preventing in-memory
+          # reads of OPENAI_CODEX_REVIEW_KEY. NOT `read-only`: that
+          # input only constrains the filesystem/network sandbox and
+          # explicitly does NOT drop sudo (per action.yml docs, Codex
+          # could still memory-read the key under safety-strategy:
+          # read-only). drop-sudo is the action's default; pinning
+          # explicitly so the choice is documented and grep-able.
+          safety-strategy: drop-sudo
+          # Model: pinned to gpt-5.5 (OpenAI's newest frontier model and the
+          # officially-recommended Codex model per
+          # https://developers.openai.com/codex/models — "codex -m gpt-5.5").
+          # The agentic `-codex` line (gpt-5.3-codex etc.) was folded into the
+          # general frontier model for Codex use, so gpt-5.5 supersedes the
+          # prior gpt-5.3-codex pin. gpt-5.5 is unsupported on a ChatGPT-account
+          # Codex login but fine via the OPENAI_CODEX_REVIEW_KEY API key.
+          #
+          # Inheriting the CLI default (empty string) tracks "OpenAI's
+          # recommended model" but lags by months — we were stuck on
+          # gpt-5-codex until 2026-05-27 because the action's default
+          # didn't auto-upgrade past v1.8's defaults. Explicit pin
+          # gives us deterministic review behavior + lets us bump
+          # deliberately when 5.4 / 5.5 / spark variants stabilize.
+          # Bump together with the codex-action SHA above when both move.
+          # Single source of truth: the workflow-level `env.CODEX_REVIEW_MODEL`
+          # (default gpt-5.5, overridable via the `CODEX_REVIEW_MODEL` Actions
+          # variable). Change it there — NOT here — to upgrade the model.
+          # 2026-06-21: bumped gpt-5.3-codex → gpt-5.5 (matches wfr-finley;
+          # gpt-5.5 is OpenAI's recommended Codex model, supersedes the
+          # agentic -codex line).
+          model: ${{ env.CODEX_REVIEW_MODEL }}
+          # effort: xhigh — maximum reasoning budget for the most thorough
+          # review (FIN-692). medium was calibrated for interactive coding
+          # speed, not exhaustive bug-hunting; OpenAI's own Codex /review was
+          # hardcoded low and raising effort yielded "much more comprehensive
+          # reviews", and their code-review skill itself runs xhigh. This is
+          # the single biggest recall lever (FIN-691). Depth is controlled by
+          # effort here, NOT by swapping the model — the model pin lives in
+          # CODEX_REVIEW_MODEL above. Cost/latency rise: see the header block.
+          effort: xhigh
+          allow-bots: "false"
+
+      - name: Upload raw JSON as artifact
+        # `hashFiles()` resolves paths relative to GITHUB_WORKSPACE, so a
+        # `${{ runner.temp }}/codex-review.json` check would always return ''
+        # even when the file exists (verified empirically on PR #190 first
+        # success run — file was present for the render step but artifact
+        # upload skipped). `if-no-files-found: warn` on the action handles
+        # the missing-file case directly without needing a step-level guard.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: codex-review-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/codex-review.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Render review and post PR comment
+        # Skip on job-level OR step-level cancellation. `!cancelled()`
+        # covers job cancellation (concurrency.cancel-in-progress); the
+        # step-outcome check covers any future per-step `timeout-minutes`.
+        if: ${{ !cancelled() && steps.codex.outcome != 'cancelled' }}
+        env:
+          # GH_TOKEN is the only secret in scope for `gh`. Untrusted
+          # PR-derived strings are routed through env: variables and
+          # passed to `gh` via file (`--body-file`) or jq -r (which
+          # treats input as data, not code).
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVIEW_FILE: ${{ runner.temp }}/codex-review.json
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+        run: |
+          set -euo pipefail
+
+          # Composition strategy: heredocs throughout to keep the
+          # markdown readable inline. Unquoted heredocs (`<<EOF`) expand
+          # ${vars} and escape literal backticks as `\``. Quoted
+          # heredocs (`<<'EOF'`) emit content verbatim — used for the
+          # static markdown sections. This pattern fully sidesteps the
+          # SC2016 "expressions in single quotes" false positives that
+          # printf format-string composition would have triggered.
+
+          MARKER_OPEN="<!-- codex-review:v1 -->"
+          MARKER_CLOSE="<!-- /codex-review:v1 -->"
+          JSON_OPEN="<!-- codex-review-json:start -->"
+          JSON_CLOSE="<!-- codex-review-json:end -->"
+          SHORT_SHA="${HEAD_SHA:0:7}"
+          BODY_FILE="${RUNNER_TEMP}/comment-body.md"
+          # Default to rendering the full review. Worst-case path
+          # (30 findings × 4KB fix_diff = ~120KB raw JSON, doubled by
+          # rendered findings = ~240KB comment body) exceeds GitHub's
+          # 65 536-char issue-comment cap. The success branch below
+          # swaps RENDER_FILE to a trimmed-fix_diff copy when the raw
+          # JSON crosses a conservative 24KB threshold. Full JSON is
+          # still uploaded as the workflow artifact for Claude Code.
+          RENDER_FILE="$REVIEW_FILE"
+
+          # Branch selection is driven by file state, NOT by
+          # `CODEX_OUTCOME`. This separation matters when codex-action
+          # exits non-zero but still writes a (possibly partial) JSON
+          # file: the previous outcome-first logic would shadow the
+          # JSON-validity check and post the generic "Codex failed"
+          # comment even when a malformed-JSON diagnostic would be
+          # more accurate. Now: file present AND valid JSON → success
+          # render; file present AND invalid JSON → schema-failed
+          # diagnostic; file missing/empty → codex-failed diagnostic.
+          # `CODEX_OUTCOME` is still surfaced in the failure-branch
+          # messages for operator triage but no longer decides which
+          # branch fires. Caught by Codex's run-#5 review (FIN-269).
+
+          if [[ -s "$REVIEW_FILE" ]] && jq empty "$REVIEW_FILE" >/dev/null 2>&1; then
+            : # fall through to the success branch below
+          elif [[ -s "$REVIEW_FILE" ]]; then
+            # --- Branch: codex produced output, but it failed JSON parsing ---
+            cat > "$BODY_FILE" <<EOF
+          ${MARKER_OPEN}
+          # 🤖 Codex Review — JSON parse failed
+
+          Codex produced output for commit \`${SHORT_SHA}\` but it did not parse as JSON. Outcome: \`${CODEX_OUTCOME}\`. Raw output uploaded as workflow artifact \`codex-review-${HEAD_SHA}\`. See [workflow run](${RUN_URL}).
+
+          <sub>Failure of this optional review is non-blocking and does not gate merging.</sub>
+          ${MARKER_CLOSE}
+          EOF
+          else
+            # --- Branch: codex failed entirely (no output file) ---
+            cat > "$BODY_FILE" <<EOF
+          ${MARKER_OPEN}
+          # 🤖 Codex Review — failed
+
+          Codex did not produce a review for commit \`${SHORT_SHA}\`. Outcome: \`${CODEX_OUTCOME}\`. See [workflow run](${RUN_URL}).
+
+          <sub>Failure of this optional review is non-blocking and does not gate merging.</sub>
+          ${MARKER_CLOSE}
+          EOF
+          fi
+
+          # --- Branch: success — render JSON to markdown ---
+          if [[ -s "$REVIEW_FILE" ]] && jq empty "$REVIEW_FILE" >/dev/null 2>&1; then
+            # Size guard: GitHub's issue-comment body is hard-capped at
+            # 65 536 characters. The schema allows up to 30 findings,
+            # each with a fix_diff up to 4KB — pathologically large
+            # reviews (mass-style refactor PRs, big schema-design PRs)
+            # can blow past the cap when the rendered findings + the
+            # raw-JSON copy are concatenated. Trim fix_diff to 600
+            # chars per finding when the raw JSON crosses 24KB; full
+            # diff stays in the workflow artifact.
+            if [[ $(wc -c < "$REVIEW_FILE") -gt 24000 ]]; then
+              RENDER_FILE="${RUNNER_TEMP}/codex-review-trimmed.json"
+              jq '
+                .findings |= map(
+                  if (.fix_diff | length) > 600
+                  then .fix_diff = (.fix_diff[0:600] + "\n...<truncated in PR comment; full fix_diff in workflow artifact>")
+                  else .
+                  end
+                )
+              ' "$REVIEW_FILE" > "$RENDER_FILE"
+            fi
+
+            # jq template renders the structured JSON into Claude
+            # Code-parseable markdown. Stable headings + per-finding
+            # blocks. Severity emojis are display-only; the machine-
+            # readable severity lives in the embedded JSON block.
+            RENDERED=$(jq -r '
+              def sev_emoji(s):
+                if s == "BLOCKER" then "🔴"
+                elif s == "SHOULD_FIX" then "🟡"
+                else "🟢"
+                end;
+              def verdict_line(v):
+                if v == "APPROVE" then "✅ **APPROVE**"
+                elif v == "REQUEST_CHANGES" then "🛑 **REQUEST CHANGES**"
+                else "💬 **COMMENT**"
+                end;
+              "## " + verdict_line(.verdict) + "\n\n"
+              + "**Summary:** " + .summary + "\n\n"
+              + "**Diff stats:** " + (.stats.files_changed|tostring) + " file(s) · "
+                + "+" + (.stats.lines_added|tostring) + "/-" + (.stats.lines_removed|tostring) + " lines · "
+                + (.stats.new_functions|tostring) + " new fn · "
+                + (.stats.new_tests|tostring) + " new test(s)\n\n"
+              + (if (.findings | length) == 0
+                  then "## Findings\n\n_None._\n\n"
+                  else "## Findings (" + (.findings|length|tostring) + ")\n\n"
+                    + ([.findings[] |
+                        "### " + .id + " " + sev_emoji(.severity) + " `[" + .severity + "]` · `"
+                          + .file + ":" + (.line_start|tostring)
+                          + (if .line_end and .line_end != .line_start then "-" + (.line_end|tostring) else "" end)
+                          + "` · tier " + (.tier|tostring) + " · confidence "
+                          + (.confidence * 100 | floor / 100 | tostring) + "\n\n"
+                        + "**Issue:** " + .issue + "\n\n"
+                        + "**Why:** " + .why + "\n\n"
+                        + (if .fix_diff and .fix_diff != ""
+                            then "**Suggested fix:**\n```diff\n" + .fix_diff + "\n```\n\n"
+                            else "_(structural change — no patch)_\n\n"
+                          end)
+                        + (if .refs and (.refs | length) > 0
+                            then "**Related:** " + (.refs | join(", ")) + "\n\n"
+                            else ""
+                          end)
+                        + (if .tags and (.tags | length) > 0
+                            then "**Tags:** " + (.tags | map("`" + . + "`") | join(" ")) + "\n\n"
+                            else ""
+                          end)
+                       ] | join("---\n\n"))
+                end)
+              + "## Test coverage — " + .test_coverage.verdict + "\n\n"
+              + .test_coverage.note + "\n\n"
+              + "## PR description vs implementation — "
+                + (if .description_vs_implementation.consistent then "consistent ✅" else "discrepancy ⚠️" end) + "\n\n"
+              + .description_vs_implementation.note + "\n\n"
+              + (if .what_works_well and (.what_works_well | length) > 0
+                  then "## What works well\n\n"
+                    + ([.what_works_well[] | "- " + .] | join("\n")) + "\n\n"
+                  else ""
+                end)
+              + (if .notes_for_claude_code and (.notes_for_claude_code | length) > 0
+                  then "## Notes for Claude Code\n\n"
+                    + ([.notes_for_claude_code[] | "- " + .] | join("\n")) + "\n\n"
+                  else ""
+                end)
+            ' "$RENDER_FILE")
+
+            # Compose success-branch comment body: marker + header + jq
+            # render + raw-JSON block (between sentinels for Claude Code
+            # parsers) + marker close. One unquoted heredoc with backtick
+            # escapes (\`), then cat the raw JSON, then a second heredoc
+            # for the trailing fence + close.
+            #
+            # 4-backtick fence (Finley advisory 4 from PR #190 review):
+            # the embedded JSON's `fix_diff` strings can legally contain
+            # literal triple-backticks (suggesting markdown fixes, etc).
+            # A 3-backtick outer fence would close prematurely at the
+            # first inner ``` and break GitHub's markdown rendering of
+            # the <details> block. 4-backtick outer fence cannot collide
+            # with 3-backtick inner content because GitHub markdown
+            # treats the LONGER fence as the outer boundary. The
+            # consumer-side bridge regex (`tool-bridge.ts`
+            # extractCodexReviewFromComments) accepts both 3- and
+            # 4-backtick fences during the rollout window — once all
+            # in-flight comments have re-rendered with 4-backticks, the
+            # 3-backtick branch can be retired.
+            {
+              cat <<EOF
+          ${MARKER_OPEN}
+          # 🤖 Codex Review
+
+          <sub>**Model:** \`${CODEX_REVIEW_MODEL}\` · **Sandbox:** \`read-only\` · **Reviewing:** \`${SHORT_SHA}\` · Findings carry stable \`[BLOCKER|SHOULD_FIX|NIT]\` tags + \`file:line\` refs + confidence scalars for Claude Code consumption. Raw JSON below + as workflow [artifact](${RUN_URL}).</sub>
+
+          ${RENDERED}
+
+          ---
+
+          <details><summary>Raw JSON (for Claude Code parsers)</summary>
+
+          ${JSON_OPEN}
+          \`\`\`\`json
+          EOF
+              cat "$RENDER_FILE"
+              cat <<EOF
+          \`\`\`\`
+          ${JSON_CLOSE}
+
+          </details>
+          ${MARKER_CLOSE}
+          EOF
+            } > "$BODY_FILE"
+
+            # Hard backstop (layer 2 — FIN-695 review F1): the field-trims
+            # above shrink the embedded JSON but cannot bound the pathological
+            # max-shape review — the <details> raw-JSON block duplicates every
+            # field, so a 30-finding review can still exceed GitHub's
+            # 65 536-byte comment cap (verified by simulation: ~73KB even after
+            # trimming). The RENDERED markdown alone is usually well under the
+            # cap, so when the composed body crosses a conservative 64 000-byte
+            # threshold, re-compose WITHOUT the embedded JSON block — it is
+            # always preserved in the workflow artifact. Since the FIN-695
+            # why-cap raise to 700, a pathological max-shape review can render
+            # past 64KB even without the JSON, so the layer-3 stub below is the
+            # final guarantee. On this rare path the downstream bridge reads
+            # the JSON from the artifact, not the comment.
+            if [[ $(wc -c < "$BODY_FILE") -gt 64000 ]]; then
+              cat > "$BODY_FILE" <<EOF
+          ${MARKER_OPEN}
+          # 🤖 Codex Review
+
+          <sub>**Model:** \`${CODEX_REVIEW_MODEL}\` · **Sandbox:** \`read-only\` · **Reviewing:** \`${SHORT_SHA}\` · Raw JSON omitted from this comment (the rendered review exceeded GitHub's 65 536-byte cap) — the full structured review is in the workflow [artifact](${RUN_URL}).</sub>
+
+          ${RENDERED}
+          ${MARKER_CLOSE}
+          EOF
+            fi
+
+            # Hard backstop (layer 3 — FIN-698): even the rendered-only body
+            # (layer 2, no embedded JSON) can exceed GitHub's 65 536-byte cap
+            # at the schema ceiling now that `why` allows up to 700 chars
+            # (FIN-695) — 30 findings with long why/issue/verification_command
+            # render past 64KB on their own. When that happens, post a minimal
+            # stub: verdict + finding count + a pointer to the workflow artifact
+            # (which always holds the full structured review and which the
+            # Finley arbitration bridge reads). Guarantees the comment posts.
+            if [[ $(wc -c < "$BODY_FILE") -gt 64000 ]]; then
+              STUB_VERDICT=$(jq -r '.verdict' "$REVIEW_FILE")
+              STUB_COUNT=$(jq -r '.findings | length' "$REVIEW_FILE")
+              cat > "$BODY_FILE" <<EOF
+          ${MARKER_OPEN}
+          # 🤖 Codex Review
+
+          <sub>**Model:** \`${CODEX_REVIEW_MODEL}\` · **Sandbox:** \`read-only\` · **Reviewing:** \`${SHORT_SHA}\`.</sub>
+
+          **Verdict: ${STUB_VERDICT}** · ${STUB_COUNT} finding(s). This review was too large to render inline — even without the embedded JSON it exceeded GitHub's 65 536-byte comment cap. The full structured review (every finding with \`file:line\`, severity, confidence, and fix) is in the workflow [artifact](${RUN_URL}) and the check output.
+          ${MARKER_CLOSE}
+          EOF
+            fi
+          fi
+
+          # Find an existing Codex review comment on this PR (marker-keyed)
+          # and update in place — keeps PR conversation clean across re-pushes.
+          # `--paginate` is load-bearing: `gh api` defaults to per_page=30,
+          # so on any PR with >30 issue comments the marker comment lands
+          # on page 2+ and a non-paginated lookup misses it, causing the
+          # next branch to post a duplicate Codex comment instead of
+          # updating in place. Streaming jq (`.[] | select | .id` + `head`)
+          # composes cleanly across paginated responses; the previous
+          # `[.[] | ...] | first // empty` form does not.
+          # Caught by Finley's review of this PR (FIN-269).
+          EXISTING_ID=$(gh api --paginate \
+            "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("^\\s*<!-- codex-review:v1 -->")) | .id' \
+            | tail -n 1)
+
+          if [[ -n "$EXISTING_ID" ]]; then
+            echo "Updating existing Codex comment id=${EXISTING_ID}"
+            gh api --method PATCH \
+              "repos/${REPO}/issues/comments/${EXISTING_ID}" \
+              --field body=@"$BODY_FILE"
+          else
+            echo "Posting new Codex review comment"
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$BODY_FILE"
+          fi

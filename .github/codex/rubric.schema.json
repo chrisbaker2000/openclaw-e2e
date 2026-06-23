@@ -1,0 +1,187 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://withfurther.com/schemas/codex-pr-review-v1.json",
+  "title": "Codex PR Review v1",
+  "description": "Structured PR review output emitted by openai/codex-action and consumed downstream by Claude Code. Stable contract — bump $id when changing field shapes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "verdict",
+    "summary",
+    "stats",
+    "findings",
+    "test_coverage",
+    "description_vs_implementation",
+    "what_works_well",
+    "notes_for_claude_code"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["APPROVE", "COMMENT", "REQUEST_CHANGES"],
+      "description": "APPROVE only if zero BLOCKER findings AND test coverage adequate AND description matches. Otherwise COMMENT (questions/non-blocking) or REQUEST_CHANGES (material gaps)."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 280,
+      "description": "One sentence stating what the PR does and what the verdict hinges on. No restating diff."
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files_changed", "lines_added", "lines_removed", "new_functions", "new_tests"],
+      "properties": {
+        "files_changed": { "type": "integer", "minimum": 0 },
+        "lines_added": { "type": "integer", "minimum": 0 },
+        "lines_removed": { "type": "integer", "minimum": 0 },
+        "new_functions": { "type": "integer", "minimum": 0, "description": "Count of net-new exported/top-level functions in the diff." },
+        "new_tests": { "type": "integer", "minimum": 0, "description": "Count of net-new it()/test()/describe() blocks in the diff." }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 30,
+      "description": "Discrete, actionable issues. Claude Code reads each as one work item. Order: BLOCKER first, then SHOULD_FIX, then NIT. Within a severity, highest confidence first. Cluster NITs per file — do NOT emit one finding per restated-code-comment line.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "tier",
+          "file",
+          "line_start",
+          "line_end",
+          "issue",
+          "why",
+          "confidence",
+          "fix_diff",
+          "refs",
+          "tags",
+          "verification_command"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F[0-9]+$",
+            "description": "Monotonic identifier F1, F2, … unique within this review. Used by `refs` cross-links."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["BLOCKER", "SHOULD_FIX", "NIT"],
+            "description": "BLOCKER: must fix before merge (tier 2-4 correctness, security, AI-service divergence). SHOULD_FIX: non-blocking but high-value (DRY, perf, hygiene). NIT: style/reflex (tier 1)."
+          },
+          "tier": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Maps to rubric tier: 1=style-reflex, 2=correctness, 3=backend, 4=AI-service, 5=consistency."
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Repo-relative path. Must be present in `git diff`'s changed-files set."
+          },
+          "line_start": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Starting line in the head commit. 1-indexed."
+          },
+          "line_end": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Ending line, inclusive. Equal to line_start for single-line findings."
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 280,
+            "description": "One-sentence problem statement. Do NOT restate the code — Claude Code will read the file."
+          },
+          "why": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 700,
+            "description": "The concrete consequence: correctness/security/perf/maintainability impact. Keep it to one sentence for SHOULD_FIX/NIT; a BLOCKER may run 2-3 sentences to show the reasoning chain that surfaces the bug (FIN-695). Not a mandate to be verbose — only headroom when the reasoning is subtle."
+          },
+          "fix_diff": {
+            "type": "string",
+            "description": "Unified diff Claude Code may apply directly with `git apply`. Empty string if the fix is structural (rename, file-split, redesign) and a patch is misleading.",
+            "maxLength": 4000
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "0.95+ = I would bet on this. 0.75-0.94 = strong signal, worth raising. 0.60-0.74 = speculative — flag it as such in the why. <0.60 = do not emit."
+          },
+          "refs": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^F[0-9]+$" },
+            "maxItems": 5,
+            "description": "Optional list of related finding IDs in this same review (caller/callee, root-cause/symptom)."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "maxItems": 4,
+            "description": "Category tags for downstream filtering. Open vocabulary — lowercase, hyphen-separated tokens. Common values include `security`, `correctness`, `performance`, `maintainability`, `style`, `tests`, `docs`, `consent`, `pii`, `ai-prompt-drift`, `react-hooks`, `backend`, `infra`, `dependency`, but the schema does not constrain to these. A closed enum here previously failed strict-mode validation when Codex emitted reasonable-sounding tags outside the list, killing the whole review (Finley's PR #190 review, FIN-269)."
+          },
+          "verification_command": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "The specific sandbox command (or short description of inspection) used to verify this finding's claim. REQUIRED for BLOCKER/SHOULD_FIX findings about external-system behavior (OpenAI API rules, GHA semantics, third-party action internals, runner sandbox, SDK methods) — those claims cannot be confidently asserted without sandbox-verifiable evidence per the verification-discipline rule in `code-pr-review-codex.md`. For findings about diff-visible code that needs no separate verification (the diff itself IS the evidence), emit an empty string \"\". Examples: \"cat .github/workflows/codex-review.yml | head -50\", \"diff hunk at file.ts:42-50 directly shows the issue\", \"rg 'PATTERN' --type ts (5 matches; consistent form)\", \"could not verify from sandbox — emitted as SHOULD_FIX per verification-discipline rule\"."
+          }
+        }
+      }
+    },
+    "test_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "note"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["ADEQUATE", "GAPS", "MISSING", "NOT_APPLICABLE"],
+          "description": "NOT_APPLICABLE only for docs-only, lockfile-only, or no-runtime-code changes."
+        },
+        "note": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 400,
+          "description": "If GAPS or MISSING, list specific file:line ranges that lack coverage."
+        }
+      }
+    },
+    "description_vs_implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consistent", "note"],
+      "properties": {
+        "consistent": { "type": "boolean" },
+        "note": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 400,
+          "description": "If consistent=false, list specific capabilities the description claims that don't ship, or that ship but aren't described."
+        }
+      }
+    },
+    "what_works_well": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 10, "maxLength": 200 },
+      "description": "2-4 specific good decisions in this diff. NOT generic praise. Empty array is acceptable for trivial PRs."
+    },
+    "notes_for_claude_code": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 5, "maxLength": 300 },
+      "description": "Free-form notes addressed to a downstream coding agent: caveats, things you could not verify in the sandbox, files worth reading even though no finding was emitted, follow-up suggestions."
+    }
+  }
+}
