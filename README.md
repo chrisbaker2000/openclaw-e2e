@@ -1,3 +1,5 @@
+
+
 # OpenClaw E2E Test Suite
 
 > **Note**: The homelab gateway runs **natively on the Mac Mini M4 Pro** (not in Docker). For homelab testing, use the local test suite at `~/.openclaw/bin/openclaw-test.sh` (200+ tests). This E2E suite is designed for testing Docker-based or remote gateway deployments.
@@ -203,7 +205,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 ## Requirements
 
-- **bash** 4+ (macOS ships bash 3 — `brew install bash` or use `/bin/zsh`)
+- **bash** 4+ (macOS ships bash 3 — `brew install bash`)
 - **curl** (for HTTP tests)
 - **python3** (for JSON parsing — no `jq` dependency)
 - **ssh** (only if using SSH container access)
