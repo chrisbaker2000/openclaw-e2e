@@ -79,7 +79,7 @@ Tests **skip** (not fail) when a feature isn't configured. Start with just a gat
 | **Environment** | 11 | Error scanning, dangerous flags, security violations |
 | **Context** | 8 | Workspace .md budgets, bloat detection, token estimation |
 | **Latency** | 5 | Gateway HTTP, memory search, skills compilation, startup time |
-| **Custom Provider** | N | Endpoint reachability for Azure, Bedrock, etc. |
+| **Custom Provider** | N | Endpoint reachability for custom providers (Anthropic direct, Bedrock, etc.) |
 
 ## Configuration
 
