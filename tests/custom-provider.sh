@@ -2,6 +2,29 @@
 # Runs when OPENCLAW_CUSTOM_PROVIDER_* vars are set.
 # Use this to test AWS Bedrock or any custom model provider.
 
+# POST a minimal Messages request to the custom provider; prints the HTTP status
+# (000 / empty on network failure).
+# Usage: _custom_provider_probe MODEL PROMPT MAX_TOKENS
+#
+# Why stdin headers: an `-H "x-api-key: $KEY"` argument is world-readable via `ps`
+# for the life of the request. The key header is written by the `printf` builtin
+# (no process, no argv) into curl's stdin and read with `-H @-`.
+# Why json.dumps: MODEL comes from config and was spliced into the JSON body raw,
+# so a quote or backslash produced an invalid request (reported as a model failure).
+_custom_provider_probe() {
+    local model="$1" prompt="$2" max_tokens="$3" body
+    body=$(python3 -c 'import json, sys
+print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": sys.argv[2]}], "max_tokens": int(sys.argv[3])}))' \
+        "$model" "$prompt" "$max_tokens") || { echo "000"; return 0; }
+    printf 'x-api-key: %s\n' "$OPENCLAW_CUSTOM_PROVIDER_KEY" | \
+        curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 10 \
+            -X POST "$OPENCLAW_CUSTOM_PROVIDER_URL" \
+            -H "Content-Type: application/json" \
+            -H @- \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$body" 2>/dev/null
+}
+
 test_custom_provider() {
     should_run "custom-provider" || return 0
 
@@ -26,12 +49,7 @@ test_custom_provider() {
 
     # 1. Endpoint reachable
     local base_code
-    base_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 10 \
-        -X POST "$OPENCLAW_CUSTOM_PROVIDER_URL" \
-        -H "Content-Type: application/json" \
-        -H "x-api-key: $OPENCLAW_CUSTOM_PROVIDER_KEY" \
-        -H "anthropic-version: 2023-06-01" \
-        -d '{"model":"test","messages":[{"role":"user","content":"hi"}],"max_tokens":1}' 2>/dev/null)
+    base_code=$(_custom_provider_probe "test" "hi" 1)
     # Any response (even 400/404) means endpoint is reachable
     if [ -n "$base_code" ] && [ "$base_code" != "000" ]; then
         pass "Endpoint reachable: HTTP $base_code"
@@ -50,12 +68,7 @@ test_custom_provider() {
             model=$(echo "$model" | tr -d ' ')
             [ -z "$model" ] && continue
             local model_code
-            model_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 10 \
-                -X POST "$OPENCLAW_CUSTOM_PROVIDER_URL" \
-                -H "Content-Type: application/json" \
-                -H "x-api-key: $OPENCLAW_CUSTOM_PROVIDER_KEY" \
-                -H "anthropic-version: 2023-06-01" \
-                -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply OK\"}],\"max_tokens\":5}" 2>/dev/null)
+            model_code=$(_custom_provider_probe "$model" "Reply OK" 5)
             if [ "$model_code" = "200" ]; then
                 pass "$model: responds (200)"
             elif [ "$model_code" = "429" ]; then

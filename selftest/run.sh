@@ -130,6 +130,66 @@ dupes=$(grep -n -- '--max-time' "$REPO_DIR"/tests/*.sh | awk -F'--max-time' 'NF 
 # Regression: custom-provider.sh had `--max-time "$OPENCLAW_HTTP_TIMEOUT" ... --max-time 30`; curl uses the last one.
 [[ -z "$dupes" ]] && ok "every curl uses only the shared timeout" || bad "duplicate --max-time:"$'\n'"$dupes"
 
+echo "8. No secret is interpolated into a curl argv (static scan)"
+# Flags shell lines passing a *KEY/*TOKEN/*SECRET/*PASS variable via -H/--header/
+# -u/--user/--oauth2-bearer or a ?key=/&token= query, and Python curl argv lists
+# whose -H value is not a string literal (e.g. "-H", prefix + token).
+secret_argv_scan() {  # secret_argv_scan FILE... -> prints offending file:line, if any
+  grep -n -i -E \
+    -e '(-H|--header|-u|--user|--oauth2-bearer)[ =]+"?[^"]*\$\{?[A-Za-z_]*(key|token|secret|pass)' \
+    -e '[?&][a-z_]*(key|token|secret)=\$' \
+    -e '"(-H|--header|-u|--user)",[[:space:]]*[^"[:space:]]' \
+    "$@" 2>/dev/null | grep -v -E '^([^:]+:)?[0-9]+:[[:space:]]*#' || true  # ignore comment lines
+}
+cat > "${FIX:?}/old-provider.sh" <<'OLD'
+    base_code=$(curl -s -o /dev/null \
+        -H "x-api-key: $OPENCLAW_CUSTOM_PROVIDER_KEY" \
+        "$URL")
+OLD
+printf '%s\n' 'auth=$(curl -s -H "Authorization: Bearer $slack_token" https://x)' \
+  'curl -s "https://api.example/v1?api_key=$API_KEY"' 'curl -u "$USER_NAME:$DB_PASS" https://x' \
+  '["curl", "-s", "-H", auth_prefix + cred, url],' >> "${FIX:?}/old-provider.sh"
+hits=$(secret_argv_scan "${FIX:?}/old-provider.sh" | wc -l | tr -d ' ')
+[[ "$hits" == "5" ]] && ok "scanner flags all 5 known secret-in-argv shapes" || bad "scanner found ${hits}/5 known shapes"
+scan_files=()
+while IFS= read -r f; do scan_files+=("$f"); done < <(cd "$REPO_DIR" && find . \( -name '*.sh' -o -name '*.py' \) -not -path './.git/*' -not -path './selftest/*' | sort)
+found=$(cd "$REPO_DIR" && secret_argv_scan "${scan_files[@]}")
+[[ -z "$found" ]] && ok "no secret in curl argv across ${#scan_files[@]} scripts (incl. tests/local)" \
+  || bad "secret interpolated into curl argv:"$'\n'"$found"
+
+echo "9. Custom-provider probe sends the key on stdin, not argv (behavioural)"
+ODD_MODEL='we"ird\model'  # contains a double quote and a backslash
+mkdir -p "${FIX:?}/cpbin" "${FIX:?}/cp"
+cat > "${FIX:?}/cpbin/curl" <<'STUB'
+#!/bin/bash
+n=0; for f in "$CP_DIR"/argv.*; do [ -e "$f" ] && n=$((n + 1)); done
+printf '%s\n' "$@" > "$CP_DIR/argv.$n"
+cat > "$CP_DIR/stdin.$n"
+prev=""; for a in "$@"; do [ "$prev" = "-d" ] && printf '%s' "$a" > "$CP_DIR/body.$n"; prev="$a"; done
+printf '200'
+STUB
+chmod +x "${FIX:?}/cpbin/curl"
+out=$(env -i PATH="${FIX:?}/cpbin:$PATH" HOME="$HOME" CP_DIR="${FIX:?}/cp" \
+  OPENCLAW_CUSTOM_PROVIDER_NAME=selftest OPENCLAW_CUSTOM_PROVIDER_URL=http://stub.invalid/v1/messages \
+  OPENCLAW_CUSTOM_PROVIDER_KEY=sk-SELFTEST-SENTINEL OPENCLAW_CUSTOM_PROVIDER_MODELS="model-a,${ODD_MODEL}" \
+  /bin/bash -c "
+    cd '$REPO_DIR'
+    source lib/output.sh; source lib/config.sh; source tests/custom-provider.sh
+    test_custom_provider" 2>&1)
+calls=0; for f in "${FIX:?}"/cp/argv.*; do [ -e "$f" ] && calls=$((calls + 1)); done
+[[ "$calls" == "3" ]] && ok "probe made 3 requests (endpoint + 2 models)" || bad "expected 3 curl calls, got ${calls}: $out"
+if ! grep -q SENTINEL "${FIX:?}"/cp/argv.* && [[ $(grep -l 'x-api-key: sk-SELFTEST-SENTINEL' "${FIX:?}"/cp/stdin.* | wc -l | tr -d ' ') == "$calls" ]]; then
+  ok "API key absent from every curl argv and sent via stdin header"
+else
+  bad "API key leaked into argv or missing from stdin"
+fi
+# Regression: the model name was spliced into the JSON body unescaped.
+if python3 -c 'import json, sys; b = json.load(open(sys.argv[1])); sys.exit(0 if b["model"] == sys.argv[2] else 1)' "${FIX:?}/cp/body.2" "$ODD_MODEL" 2>/dev/null; then
+  ok "model name with quote/backslash yields a valid JSON body"
+else
+  bad "invalid JSON body for odd model name: $(cat "${FIX:?}/cp/body.2" 2>/dev/null)"
+fi
+
 echo ""
 echo "Results: ${PASS}/$((PASS + FAIL)) passed, ${FAIL} failed"
 [[ $FAIL -eq 0 ]]

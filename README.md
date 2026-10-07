@@ -200,7 +200,7 @@ See [`examples/`](examples/) for ready-to-use `.env` templates:
 
 ## Harness Self-Test
 
-`./selftest/run.sh` checks the harness itself offline (fixtures + stubs, no gateway): env-over-`.env` precedence, thinking levels in `docs-schema.json`, plugin-manifest candidate filtering, the native version probe, token handling in `lib/channel-liveness.py`, and that every `curl` in `tests/` carries `--max-time`.
+`./selftest/run.sh` checks the harness itself offline (fixtures + stubs, no gateway): env-over-`.env` precedence, thinking levels in `docs-schema.json`, plugin-manifest candidate filtering, the native version probe, token handling in `lib/channel-liveness.py` and the custom-provider probe (secrets go to curl on stdin via `-H @-`, never argv — enforced by a static scan of every script incl. `tests/local/`), `OPENCLAW_HTTP_TIMEOUT` validation, and that every `curl` in `tests/` carries exactly one `--max-time`. New probes must pass credentials the same way.
 
 ## Adding Your Own Tests
 
