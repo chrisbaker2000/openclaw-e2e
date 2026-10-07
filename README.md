@@ -150,7 +150,7 @@ OPENCLAW_MAX_WORKSPACE_MD_BYTES=8000  # default
 OPENCLAW_MAX_BOOTSTRAP_TOKENS=2000    # default
 
 # Upper bound (seconds) on every HTTP request, so a hung server can't stall the run
-OPENCLAW_HTTP_TIMEOUT=30              # default
+OPENCLAW_HTTP_TIMEOUT=30              # default; must be an integer 1-9999, else warns and uses 30
 ```
 
 See [`.env.example`](.env.example) for the full list, or [`examples/`](examples/) for deployment-specific templates.

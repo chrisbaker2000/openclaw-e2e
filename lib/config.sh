@@ -23,7 +23,16 @@ fi
 OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-}"
 # Upper bound (seconds) on every HTTP request the suite makes, so a server that
 # accepts the connection but never answers cannot hang the run.
-OPENCLAW_HTTP_TIMEOUT="${OPENCLAW_HTTP_TIMEOUT:-30}"
+OPENCLAW_HTTP_TIMEOUT_DEFAULT=30
+OPENCLAW_HTTP_TIMEOUT="${OPENCLAW_HTTP_TIMEOUT:-$OPENCLAW_HTTP_TIMEOUT_DEFAULT}"
+# Why validate: the value is interpolated into host_exec command strings (run via
+# `sh -c` locally or over SSH), so anything but a plain positive integer of at most
+# 4 digits is rejected — it would otherwise be a command-injection vector.
+if ! [[ "$OPENCLAW_HTTP_TIMEOUT" =~ ^[0-9]{1,4}$ ]] || [ "$((10#$OPENCLAW_HTTP_TIMEOUT))" -le 0 ]; then
+    echo "WARNING: OPENCLAW_HTTP_TIMEOUT must be a positive integer of seconds (1-9999); using ${OPENCLAW_HTTP_TIMEOUT_DEFAULT}" >&2
+    OPENCLAW_HTTP_TIMEOUT="$OPENCLAW_HTTP_TIMEOUT_DEFAULT"
+fi
+OPENCLAW_HTTP_TIMEOUT="$((10#$OPENCLAW_HTTP_TIMEOUT))"
 
 # ─── Container access ─────────────────────────────────────────────
 OPENCLAW_SSH_HOST="${OPENCLAW_SSH_HOST:-}"
