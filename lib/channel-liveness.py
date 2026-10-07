@@ -15,7 +15,8 @@ Prints exactly one of:
     bad   — credential rejected (invalid / revoked)
     ""    — undetermined (no credential, network error, or timeout)
 
-The credential is read straight from config and handed to curl; it is never
+The credential is read straight from config and handed to curl on stdin
+(`-H @-`), never in argv (argv is world-readable via `ps`); it is never
 echoed, logged, or returned. Every network call is bounded by connect/total
 timeouts so an unavailable endpoint degrades to "" and the caller falls back
 to log-based evidence.
@@ -63,7 +64,8 @@ def main() -> int:
             # auth.test returns 200 with {"ok": true|false}
             out = subprocess.run(
                 ["curl", "-s", "--connect-timeout", "5", "--max-time", "10",
-                 "-H", auth_prefix + cred, url],
+                 "-H", "@-", url],
+                input=auth_prefix + cred + "\n",
                 capture_output=True, text=True, timeout=15,
             ).stdout
             print("ok" if json.loads(out).get("ok") else "bad")
@@ -71,7 +73,8 @@ def main() -> int:
             code = subprocess.run(
                 ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
                  "--connect-timeout", "5", "--max-time", "10",
-                 "-H", auth_prefix + cred, url],
+                 "-H", "@-", url],
+                input=auth_prefix + cred + "\n",
                 capture_output=True, text=True, timeout=15,
             ).stdout.strip()
             print("ok" if code == "200" else ("bad" if code in ("401", "403") else ""))

@@ -26,7 +26,7 @@ test_custom_provider() {
 
     # 1. Endpoint reachable
     local base_code
-    base_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 \
+    base_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 10 \
         -X POST "$OPENCLAW_CUSTOM_PROVIDER_URL" \
         -H "Content-Type: application/json" \
         -H "x-api-key: $OPENCLAW_CUSTOM_PROVIDER_KEY" \
@@ -50,7 +50,7 @@ test_custom_provider() {
             model=$(echo "$model" | tr -d ' ')
             [ -z "$model" ] && continue
             local model_code
-            model_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 30 \
+            model_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 30 \
                 -X POST "$OPENCLAW_CUSTOM_PROVIDER_URL" \
                 -H "Content-Type: application/json" \
                 -H "x-api-key: $OPENCLAW_CUSTOM_PROVIDER_KEY" \

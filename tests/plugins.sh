@@ -47,6 +47,10 @@ for plugin_dir in glob.glob(os.path.join(ext_dir, \"*/\")):
     manifest_path = os.path.join(plugin_dir, \"openclaw.plugin.json\")
     plugin_name = os.path.basename(plugin_dir.rstrip(\"/\"))
     if not os.path.exists(manifest_path):
+        # Not a plugin candidate: dependency dirs, and shared dirs with neither a
+        # manifest nor a package.json (e.g. a deployed framework/ lib holder).
+        if plugin_name == \"node_modules\" or not os.path.exists(os.path.join(plugin_dir, \"package.json\")):
+            continue
         bad.append(f\"{plugin_name}: missing manifest\")
         continue
     try:

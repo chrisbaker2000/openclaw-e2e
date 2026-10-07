@@ -91,6 +91,12 @@ OPENCLAW_GATEWAY_URL="http://localhost:18789"
 
 Everything else is optional — tests skip cleanly when features aren't configured.
 
+Variables already set in the environment take precedence over `.env`, so one-off overrides work without editing the file:
+
+```bash
+OPENCLAW_NATIVE=true OPENCLAW_GATEWAY_URL=http://localhost:18789 ./openclaw-test.sh --section core
+```
+
 ### Gateway Access
 
 Gateway access enables config validation, cron, plugin, runtime, environment, and context tests. Choose one method:
@@ -142,6 +148,9 @@ OPENCLAW_MAX_SKILLS_MS=3000           # default
 OPENCLAW_MAX_WORKSPACE_MD_FILES=10    # default
 OPENCLAW_MAX_WORKSPACE_MD_BYTES=8000  # default
 OPENCLAW_MAX_BOOTSTRAP_TOKENS=2000    # default
+
+# Upper bound (seconds) on every HTTP request, so a hung server can't stall the run
+OPENCLAW_HTTP_TIMEOUT=30              # default
 ```
 
 See [`.env.example`](.env.example) for the full list, or [`examples/`](examples/) for deployment-specific templates.
@@ -188,6 +197,10 @@ See [`examples/`](examples/) for ready-to-use `.env` templates:
 3. **Path abstraction**: Uses `_PROC_CONFIG_DIR` to resolve config paths correctly in both Docker (`/home/node/.openclaw`) and native (`~/.openclaw`) environments
 4. **Schema validation**: Tests are grounded in `docs-schema.json` (extracted from official OpenClaw docs) rather than hardcoded values
 5. **Graceful degradation**: Each test module checks whether its prerequisites are met and skips cleanly if not — Docker-only features (inspect, stats) skip automatically in native mode
+
+## Harness Self-Test
+
+`./selftest/run.sh` checks the harness itself offline (fixtures + stubs, no gateway): env-over-`.env` precedence, thinking levels in `docs-schema.json`, plugin-manifest candidate filtering, the native version probe, token handling in `lib/channel-liveness.py`, and that every `curl` in `tests/` carries `--max-time`.
 
 ## Adding Your Own Tests
 

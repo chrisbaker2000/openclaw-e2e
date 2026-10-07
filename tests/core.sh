@@ -13,12 +13,12 @@ test_core() {
     # Only 000 (connection refused/timeout) means it's down.
     if [ -n "$OPENCLAW_GATEWAY_URL" ]; then
         local http_code
-        http_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$OPENCLAW_GATEWAY_URL" 2>/dev/null)
+        http_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 5 "$OPENCLAW_GATEWAY_URL" 2>/dev/null)
         if [ "$http_code" != "000" ] && [ -n "$http_code" ]; then
             pass "HTTP responds: $http_code"
         elif has_container_access; then
             # Gateway not reachable directly — try from the Docker host
-            http_code=$(host_exec "curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 'http://localhost:18789'" 2>/dev/null | tr -d '\r\n')
+            http_code=$(host_exec "curl -s --max-time ${OPENCLAW_HTTP_TIMEOUT} -o /dev/null -w '%{http_code}' --connect-timeout 5 'http://localhost:18789'" 2>/dev/null | tr -d '\r\n')
             if [ "$http_code" != "000" ] && [ -n "$http_code" ]; then
                 pass "HTTP responds: $http_code (via Docker host)"
             else
@@ -51,7 +51,10 @@ test_core() {
     if [ "$OPENCLAW_NATIVE" = "true" ]; then
         # Isolate the semver token (e.g. "2026.6.8" from "OpenClaw 2026.6.8 (844f405)")
         # rather than stripping all non-numeric chars, which concatenates build-hash digits.
-        version=$(openclaw --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        # env -u: the openclaw CLI honours OPENCLAW_CONTAINER and would try to
+        # `docker exec` into it; .env is sourced with `set -a`, so a container name
+        # left in .env made the native version probe fail ("No running container").
+        version=$(env -u OPENCLAW_CONTAINER openclaw --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         if [ -z "$version" ] && [ -n "$OPENCLAW_INSTALL_DIR" ]; then
             version=$(node -p "require('$OPENCLAW_INSTALL_DIR/package.json').version" 2>/dev/null)
         fi

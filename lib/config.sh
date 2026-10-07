@@ -5,14 +5,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Load .env if it exists
 if [ -f "$SCRIPT_DIR/.env" ]; then
+    # Environment variables take precedence over .env (standard dotenv semantics):
+    # snapshot the exported OPENCLAW_* vars, source .env, then restore the snapshot.
+    # Why: sourcing .env last silently clobbered e.g. `OPENCLAW_GATEWAY_URL=... ./openclaw-test.sh`.
+    _OPENCLAW_ENV_SNAPSHOT=$(declare -px 2>/dev/null | grep -E '^declare -x OPENCLAW_[A-Z0-9_]+=' || true)
     set -a
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/.env"
     set +a
+    if [ -n "$_OPENCLAW_ENV_SNAPSHOT" ]; then
+        eval "$_OPENCLAW_ENV_SNAPSHOT"
+    fi
+    unset _OPENCLAW_ENV_SNAPSHOT
 fi
 
 # ─── Required ──────────────────────────────────────────────────────
 OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-}"
+# Upper bound (seconds) on every HTTP request the suite makes, so a server that
+# accepts the connection but never answers cannot hang the run.
+OPENCLAW_HTTP_TIMEOUT="${OPENCLAW_HTTP_TIMEOUT:-30}"
 
 # ─── Container access ─────────────────────────────────────────────
 OPENCLAW_SSH_HOST="${OPENCLAW_SSH_HOST:-}"

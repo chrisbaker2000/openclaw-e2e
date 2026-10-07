@@ -425,7 +425,7 @@ else:
         fail "Logging redactSensitive $redact_check"
     fi
 
-    # 19. Agent thinking level valid (per docs: off, minimal, low, medium, high, xhigh)
+    # 19. Agent thinking level valid (per docs: off, minimal, low, medium, high, xhigh, adaptive, max, ultra)
     if [ -n "$shared_config" ]; then
         local thinking_check
         thinking_check=$(echo "$shared_config" | python3 -c "
