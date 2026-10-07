@@ -14,7 +14,7 @@ test_latency() {
     local gw_latency_via=""
     if [ -n "$gw_latency_url" ]; then
         local probe
-        probe=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 "$gw_latency_url" 2>/dev/null)
+        probe=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 3 "$gw_latency_url" 2>/dev/null)
         if [ "$probe" = "000" ] && has_container_access && [ "$OPENCLAW_NATIVE" != "true" ]; then
             # Not directly reachable — we'll test via Docker host
             gw_latency_url="http://localhost:18789"
@@ -30,9 +30,9 @@ test_latency() {
     # below can skip explicitly instead of silently measuring a cold path.
     local mem_warmup_ok=false
     if [ -n "$gw_latency_via" ] && has_container_access && [ "$OPENCLAW_NATIVE" != "true" ]; then
-        host_exec "curl -sf -o /dev/null 'http://localhost:18789'" 2>/dev/null || true
+        host_exec "curl -sf --max-time ${OPENCLAW_HTTP_TIMEOUT} -o /dev/null 'http://localhost:18789'" 2>/dev/null || true
     elif [ -n "$OPENCLAW_GATEWAY_URL" ]; then
-        curl -sf -o /dev/null --connect-timeout 3 "$OPENCLAW_GATEWAY_URL" 2>/dev/null || true
+        curl -sf --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null --connect-timeout 3 "$OPENCLAW_GATEWAY_URL" 2>/dev/null || true
     fi
     if [ "$has_memory" = "true" ]; then
         # The warmup exits non-zero (not swallowed) if either probe fails, so a

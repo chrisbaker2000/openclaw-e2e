@@ -33,7 +33,7 @@
       "isolated": "agentTurn"
     },
     "wake_modes": ["now", "next-heartbeat"],
-    "thinking_levels": ["off", "minimal", "low", "medium", "high", "xhigh"]
+    "thinking_levels": ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max", "ultra"]
   },
   "models": {
     "ref_format": "^[a-z][a-z0-9_-]*/[a-z0-9._-]+$",
@@ -56,7 +56,7 @@
     "merge_modes": ["merge", "replace"]
   },
   "agents": {
-    "thinking_levels": ["off", "minimal", "low", "medium", "high", "xhigh"],
+    "thinking_levels": ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max", "ultra"],
     "time_formats": ["auto", "12", "24"],
     "verbose_levels": ["off", "on"],
     "elevated_levels": ["off", "on"],

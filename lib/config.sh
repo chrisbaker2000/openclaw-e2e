@@ -5,14 +5,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Load .env if it exists
 if [ -f "$SCRIPT_DIR/.env" ]; then
+    # Environment variables take precedence over .env (standard dotenv semantics):
+    # snapshot the exported OPENCLAW_* vars, source .env, then restore the snapshot.
+    # Why: sourcing .env last silently clobbered e.g. `OPENCLAW_GATEWAY_URL=... ./openclaw-test.sh`.
+    _OPENCLAW_ENV_SNAPSHOT=$(declare -px 2>/dev/null | grep -E '^declare -x OPENCLAW_[A-Z0-9_]+=' || true)
     set -a
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/.env"
     set +a
+    if [ -n "$_OPENCLAW_ENV_SNAPSHOT" ]; then
+        eval "$_OPENCLAW_ENV_SNAPSHOT"
+    fi
+    unset _OPENCLAW_ENV_SNAPSHOT
 fi
 
 # ─── Required ──────────────────────────────────────────────────────
 OPENCLAW_GATEWAY_URL="${OPENCLAW_GATEWAY_URL:-}"
+# Upper bound (seconds) on every HTTP request the suite makes, so a server that
+# accepts the connection but never answers cannot hang the run.
+OPENCLAW_HTTP_TIMEOUT_DEFAULT=30
+OPENCLAW_HTTP_TIMEOUT="${OPENCLAW_HTTP_TIMEOUT:-$OPENCLAW_HTTP_TIMEOUT_DEFAULT}"
+# Why validate: the value is interpolated into host_exec command strings (run via
+# `sh -c` locally or over SSH), so anything but a plain positive integer of at most
+# 4 digits is rejected — it would otherwise be a command-injection vector.
+if ! [[ "$OPENCLAW_HTTP_TIMEOUT" =~ ^[0-9]{1,4}$ ]] || [ "$((10#$OPENCLAW_HTTP_TIMEOUT))" -le 0 ]; then
+    echo "WARNING: OPENCLAW_HTTP_TIMEOUT must be a positive integer of seconds (1-9999); using ${OPENCLAW_HTTP_TIMEOUT_DEFAULT}" >&2
+    OPENCLAW_HTTP_TIMEOUT="$OPENCLAW_HTTP_TIMEOUT_DEFAULT"
+fi
+OPENCLAW_HTTP_TIMEOUT="$((10#$OPENCLAW_HTTP_TIMEOUT))"
 
 # ─── Container access ─────────────────────────────────────────────
 OPENCLAW_SSH_HOST="${OPENCLAW_SSH_HOST:-}"

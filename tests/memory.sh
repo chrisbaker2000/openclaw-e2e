@@ -16,7 +16,7 @@ test_memory() {
     # ─── Health ────────────────────────────────────────────────────
     # 1. Server health
     local health_resp
-    health_resp=$(curl -s --connect-timeout 5 "$MEMORY_SERVER/v1/health" 2>/dev/null)
+    health_resp=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" --connect-timeout 5 "$MEMORY_SERVER/v1/health" 2>/dev/null)
     if echo "$health_resp" | grep -q '"now"'; then
         pass "Memory server health: OK"
     else
@@ -26,7 +26,7 @@ test_memory() {
 
     # 2. OpenAPI docs accessible
     local docs_code
-    docs_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$MEMORY_SERVER/openapi.json" 2>/dev/null)
+    docs_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' --connect-timeout 5 "$MEMORY_SERVER/openapi.json" 2>/dev/null)
     if [ "$docs_code" = "200" ]; then
         pass "OpenAPI spec: accessible"
     else
@@ -79,7 +79,7 @@ print(d.get('plugins',{}).get('entries',{}).get('openclaw-redis-agent-memory',{}
 
     # Pre-clean old test memories
     local old_ids
-    old_ids=$(curl -s -X POST -H "Content-Type: application/json" \
+    old_ids=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -X POST -H "Content-Type: application/json" \
         -d "{\"text\": \"OPENCLAW_E2E_TEST automated\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"limit\": 10}" \
         "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null | python3 -c "
 import json,sys
@@ -89,12 +89,12 @@ for m in d.get('memories',[]):
         print(m['id'])
 " 2>/dev/null)
     for oid in $old_ids; do
-        curl -s -o /dev/null -X DELETE "$MEMORY_SERVER/v1/long-term-memory?memory_ids=$oid&namespace=$NAMESPACE" 2>/dev/null
+        curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -X DELETE "$MEMORY_SERVER/v1/long-term-memory?memory_ids=$oid&namespace=$NAMESPACE" 2>/dev/null
     done
 
     # 5. Store
     local store_code
-    store_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    store_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X POST \
         -H "Content-Type: application/json" \
         -d "{\"memories\": [{\"id\": \"$test_marker\", \"text\": \"$test_text\", \"namespace\": \"$NAMESPACE\", \"topics\": [\"e2e-test\"], \"entities\": [\"E2E-Test-Runner\"]}]}" \
         "$MEMORY_SERVER/v1/long-term-memory/" 2>/dev/null)
@@ -115,7 +115,7 @@ for m in d.get('memories',[]):
     for attempt in 1 2 3; do
         sleep 4
         local search_resp
-        search_resp=$(curl -s -X POST -H "Content-Type: application/json" \
+        search_resp=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -X POST -H "Content-Type: application/json" \
             -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"limit\": 5}" \
             "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
         read -r server_id search_dist < <(echo "$search_resp" | python3 -c "
@@ -143,7 +143,7 @@ sys.exit(1)
 
     # 7. Get by ID
     local get_code
-    get_code=$(curl -s -o /dev/null -w '%{http_code}' \
+    get_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' \
         "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
     if [ "$get_code" = "200" ]; then
         pass "Get: record retrieved"
@@ -154,13 +154,13 @@ sys.exit(1)
     # 8. Update (PATCH)
     local updated_text="${test_marker}_UPDATED"
     local patch_code
-    patch_code=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
+    patch_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X PATCH \
         -H "Content-Type: application/json" \
         -d "{\"text\": \"$updated_text\"}" \
         "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
     if [ "$patch_code" = "200" ]; then
         local verify_text
-        verify_text=$(curl -s "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | \
+        verify_text=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | \
             python3 -c "import json,sys; print(json.load(sys.stdin).get('text',''))" 2>/dev/null)
         if echo "$verify_text" | grep -q "_UPDATED"; then
             pass "Update (PATCH): verified"
@@ -174,13 +174,13 @@ sys.exit(1)
     # 9. PATCH structured fields (topics, entities, memory_type, event_date)
     #    Catches server bugs like the 0.13.2 topic pipe-joining issue.
     local enrich_code
-    enrich_code=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
+    enrich_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X PATCH \
         -H "Content-Type: application/json" \
         -d '{"topics": ["e2e-test", "health:test"], "entities": ["E2E-Runner"], "memory_type": "episodic", "event_date": "2026-02-24"}' \
         "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
     if [ "$enrich_code" = "200" ]; then
         local verify_fields
-        verify_fields=$(curl -s "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | python3 -c "
+        verify_fields=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 raw_topics = d.get('topics') or []
@@ -206,7 +206,7 @@ print('yes' if all([topics_ok, entities_ok, type_ok, date_ok]) else f'no (topics
     #     Capture body+code in one call into shell variables (no fixed /tmp
     #     path — avoids cross-run clobber / predictable-path issues, LAB-270).
     local topic_resp topic_code topic_body topic_found="no"
-    topic_resp=$(curl -s -w '\n%{http_code}' -X POST \
+    topic_resp=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -w '\n%{http_code}' -X POST \
         -H "Content-Type: application/json" \
         -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"topics\": {\"any\": [\"e2e-test\"]}, \"limit\": 5}" \
         "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
@@ -234,7 +234,7 @@ print('no')
 
     # 11. Search with entity filter
     local entity_resp entity_code entity_body entity_found="no"
-    entity_resp=$(curl -s -w '\n%{http_code}' -X POST \
+    entity_resp=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -w '\n%{http_code}' -X POST \
         -H "Content-Type: application/json" \
         -d "{\"text\": \"$test_marker\", \"namespace\": {\"eq\": \"$NAMESPACE\"}, \"entities\": {\"any\": [\"E2E-Runner\"]}, \"limit\": 5}" \
         "$MEMORY_SERVER/v1/long-term-memory/search" 2>/dev/null)
@@ -276,13 +276,13 @@ print('no')
     # 13. Pin test (PATCH pinned=true)
     #     Known limitation: 0.13.2 does not support PATCH for pinned field (returns 400).
     local pin_code
-    pin_code=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH \
+    pin_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X PATCH \
         -H "Content-Type: application/json" \
         -d '{"pinned": true}' \
         "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
     if [ "$pin_code" = "200" ]; then
         local pin_verify
-        pin_verify=$(curl -s "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | \
+        pin_verify=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null | \
             python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if d.get('pinned') else 'no')" 2>/dev/null)
         if [ "$pin_verify" = "yes" ]; then
             pass "Pin (PATCH): pinned=true persists"
@@ -297,7 +297,7 @@ print('no')
 
     # 14. Memory server version (informational)
     local server_version
-    server_version=$(curl -s --connect-timeout 5 "$MEMORY_SERVER/openapi.json" 2>/dev/null | \
+    server_version=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" --connect-timeout 5 "$MEMORY_SERVER/openapi.json" 2>/dev/null | \
         python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('info',{}).get('version','unknown'))" 2>/dev/null)
     if [ -n "$server_version" ] && [ "$server_version" != "unknown" ]; then
         pass "Server version: $server_version"
@@ -307,7 +307,7 @@ print('no')
 
     # 15. Delete
     local del_code
-    del_code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+    del_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X DELETE \
         "$MEMORY_SERVER/v1/long-term-memory?memory_ids=$server_id&namespace=$NAMESPACE" 2>/dev/null)
     if [ "$del_code" = "200" ] || [ "$del_code" = "204" ]; then
         pass "Delete: $del_code"
@@ -318,7 +318,7 @@ print('no')
     # 16. Verify deleted
     sleep 1
     local verify_code
-    verify_code=$(curl -s -o /dev/null -w '%{http_code}' \
+    verify_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' \
         "$MEMORY_SERVER/v1/long-term-memory/$server_id?namespace=$NAMESPACE" 2>/dev/null)
     if [ "$verify_code" = "404" ]; then
         pass "Verify deleted: 404"
@@ -341,7 +341,7 @@ _test_memory_working() {
 
     # 17. PUT working memory
     local put_code
-    put_code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+    put_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X PUT \
         -H "Content-Type: application/json" \
         -d "{
             \"messages\": [
@@ -364,7 +364,7 @@ _test_memory_working() {
 
     # 18. GET working memory
     local get_resp get_code get_body
-    get_resp=$(curl -s -w '\n%{http_code}' \
+    get_resp=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -w '\n%{http_code}' \
         "$MEMORY_SERVER/v1/working-memory/$test_session?namespace=$NAMESPACE&user_id=e2e-test" 2>/dev/null)
     get_code=$(echo "$get_resp" | tail -1)
     get_body=$(echo "$get_resp" | sed '$d')
@@ -395,7 +395,7 @@ except Exception:
 
     # 20. List sessions
     local list_code
-    list_code=$(curl -s -o /dev/null -w '%{http_code}' "$MEMORY_SERVER/v1/working-memory/?namespace=$NAMESPACE&limit=5" 2>/dev/null)
+    list_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' "$MEMORY_SERVER/v1/working-memory/?namespace=$NAMESPACE&limit=5" 2>/dev/null)
     if [ "$list_code" = "200" ]; then
         pass "Working memory list: accessible"
     else
@@ -404,7 +404,7 @@ except Exception:
 
     # 21. DELETE working memory
     local wm_del_code
-    wm_del_code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+    wm_del_code=$(curl -s --max-time "$OPENCLAW_HTTP_TIMEOUT" -o /dev/null -w '%{http_code}' -X DELETE \
         "$MEMORY_SERVER/v1/working-memory/$test_session?namespace=$NAMESPACE&user_id=e2e-test" 2>/dev/null)
     if [ "$wm_del_code" = "200" ] || [ "$wm_del_code" = "204" ]; then
         pass "Working memory DELETE: $wm_del_code"
